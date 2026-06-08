@@ -61,6 +61,18 @@ The bundled app will be in `src-tauri/target/release/bundle/`.
 
 ---
 
+## Download
+
+Pre-built installers are available on the [releases page](https://github.com/heiwin/Buccaneer/releases).
+
+| OS      | Format                                      |
+| ------- | ------------------------------------------- |
+| macOS   | `.dmg` (Intel & Apple Silicon)              |
+| Windows | `.msi`                                      |
+| Linux   | `.deb` / `.AppImage`                        |
+
+---
+
 ## Key Design Decisions
 
 1. **Backend-proxied network requests** — All TMDB, Knaben, apibay, YTS, and EZTV requests go through the Rust backend, not the frontend. This keeps API keys secure and allows server-side tracker filtering.
