@@ -288,7 +288,7 @@ export function SettingsPage() {
               label="Streaming Region"
               options={REGIONS.map(r => ({ value: r.value, label: r.label }))}
               value={settings.streamingRegion}
-              onChange={(e) => setSettings(s => ({ ...s, streamingRegion: e.target.value }))}
+               onChange={(e) => setSettings(s => ({ ...s, streamingRegion: e.target.value as string }))}
               size="sm"
             />
           </div>

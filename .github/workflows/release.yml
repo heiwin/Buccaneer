@@ -4,17 +4,31 @@ on:
     tags:
       - 'v*'
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
-  build:
+  publish-tauri:
+    permissions:
+      contents: write
     strategy:
+      fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
+        include:
+          - platform: 'macos-latest'
+            args: '--target aarch64-apple-darwin'
+          - platform: 'macos-latest'
+            args: '--target x86_64-apple-darwin'
+          - platform: 'ubuntu-22.04'
+            args: ''
+          - platform: 'windows-latest'
+            args: ''
+    runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Install Linux system dependencies
-        if: runner.os == 'Linux'
+        if: matrix.platform == 'ubuntu-22.04'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -27,12 +41,22 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: lts/*
           cache: 'npm'
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
 
       - run: npm ci
 
-      - uses: tauri-apps/tauri-action@v2
+      - uses: tauri-apps/tauri-action@v0
         with:
           tagName: ${{ github.ref_name }}
           releaseName: Buccaneer ${{ github.ref_name }}
@@ -40,10 +64,12 @@ jobs:
             ## Buccaneer ${{ github.ref_name }}
 
             Download the appropriate asset for your platform:
-            - **macOS**: `.dmg`
+            - **macOS (Intel)**: `.dmg` (x86_64)
+            - **macOS (Apple Silicon)**: `.dmg` (aarch64)
             - **Windows**: `.msi`
             - **Linux**: `.AppImage`
           releaseDraft: false
           prerelease: false
+          args: ${{ matrix.args }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
