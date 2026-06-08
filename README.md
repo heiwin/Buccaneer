@@ -291,19 +291,20 @@ You can then publish the release from the GitHub web interface.
 | Package                          | Version   | Purpose                                      |
 | -------------------------------- | --------- | -------------------------------------------- |
 | `react` / `react-dom`            | 19.2      | UI framework                                  |
-| `react-router-dom`               | 7.15      | Client-side routing                           |
+| `react-router-dom`               | 7.17      | Client-side routing                           |
 | `@tauri-apps/api`                | 2.11      | Tauri IPC (invoke, window, event)             |
 | `@tauri-apps/plugin-store`       | 2.4       | Persistent storage                            |
 | `@tauri-apps/plugin-dialog`      | 2.7       | Native file dialogs                           |
 | `@tauri-apps/plugin-deep-link`   | 2.4       | Deep link handling                            |
-| `lucide-react`                   | 1.16      | Icon set                                      |
-| `motion`                         | 12.39     | Animation library (Framer Motion)             |
+| `lucide-react`                   | 1.17      | Icon set                                      |
+| `motion`                         | 12.40     | Animation library (Framer Motion)             |
 | `clsx` / `tailwind-merge`        | —         | Conditional CSS class merging                 |
 | `typescript`                     | 6.0       | TypeScript compiler                           |
 | `vite`                           | 8.0       | Build tool & dev server                       |
 | `tailwindcss`                    | 3.4       | Utility-first CSS                             |
 | `@vitejs/plugin-react`           | 6.0       | Vite React plugin                             |
-| `eslint`                         | 10.3      | Linting                                       |
+| `eslint`                         | 10.4      | Linting                                       |
+| `typescript-eslint`              | 8.61      | TypeScript ESLint                             |
 
 ---
 
