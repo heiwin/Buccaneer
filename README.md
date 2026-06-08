@@ -40,13 +40,14 @@
 
 ## Installation
 
-Download the latest installer from the [releases page](https://github.com/heiwin/Buccaneer/releases).
+```bash
+git clone https://github.com/heiwin/Buccaneer.git
+cd Buccaneer
+npm install
+npm run tauri build
+```
 
-| OS      | Package         | Install                                   |
-| ------- | --------------- | ----------------------------------------- |
-| macOS   | `.dmg`          | Open the DMG and drag the app to **Applications**.<br>On first launch, right-click the app and select **Open** (unsigned app). |
-| Windows | `.msi`          | Double-click the MSI and follow the wizard. |
-| Linux   | `.deb` / `.AppImage` | Install via your package manager or run the AppImage directly. |
+The bundled app will be in `src-tauri/target/release/bundle/`.
 
 ---
 
