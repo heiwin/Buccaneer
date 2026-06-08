@@ -40,6 +40,16 @@
 
 ## Installation
 
+### Prerequisites per platform
+
+| OS      | Requirements                                                                 |
+| ------- | ---------------------------------------------------------------------------- |
+| macOS   | Xcode Command Line Tools (`xcode-select --install`), Node.js 20+, Rust       |
+| Windows | Visual Studio Build Tools (or VS with C++ workload), Node.js 20+, Rust       |
+| Linux   | `libwebkit2gtk-4.1-dev`, `libappindicator3-dev`, `librsvg2-dev`, `patchelf`, `libssl-dev`, `libayatana-appindicator3-dev`, Node.js 20+, Rust |
+
+### Build
+
 ```bash
 git clone https://github.com/heiwin/Buccaneer.git
 cd Buccaneer
