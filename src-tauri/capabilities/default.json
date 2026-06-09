@@ -1,0 +1,28 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "enables the default permissions",
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "core:default",
+    "core:window:allow-destroy",
+    {
+      "identifier": "shell:allow-open",
+      "allow": [
+        {
+          "url": "https://www.imdb.com/*"
+        },
+        {
+          "url": "https://www.youtube.com/*"
+        }
+      ]
+    },
+    "store:allow-load",
+    "store:allow-set",
+    "store:allow-get",
+    "store:allow-save",
+    "dialog:default"
+  ]
+}
