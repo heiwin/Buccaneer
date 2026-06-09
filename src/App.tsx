@@ -28,12 +28,20 @@ function App() {
       invoke('set_tmdb_api_key', { key: s.tmdbApiKey }).catch(console.error);
     });
 
+    const VALID_ROUTES = new Set([
+      '/', '/search', '/discover', '/settings', '/downloads', '/favorites',
+    ]);
+
     const unlistenDeepLink = onOpenUrl((urls) => {
       if (urls.length === 0) return;
       try {
         const url = new URL(urls[0]);
         const path = url.hostname ? '/' + url.hostname + url.pathname : '/';
-        navigate(path);
+        // Only navigate to valid routes to prevent deep link abuse
+        const normalized = path.replace(/\/+$/, '') || '/';
+        if (VALID_ROUTES.has(normalized) || /^\/(movie|tv)\/\d+$/.test(normalized)) {
+          navigate(normalized);
+        }
       } catch (e: unknown) {
         console.error('Invalid deep link URL:', urls[0], e instanceof Error ? e.message : String(e));
       }

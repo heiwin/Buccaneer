@@ -39,16 +39,6 @@ export function SettingsPage() {
     setSettings(DEFAULTS);
   };
 
-  const handleBrowseDownload = async () => {
-    const selected = await open({
-      directory: true,
-      multiple: false,
-    });
-    if (selected && typeof selected === 'string') {
-      setSettings(s => ({ ...s, downloadPath: selected }));
-    }
-  };
-
   const handleBrowseVlc = async () => {
     const selected = await open({
       directory: false,
@@ -112,31 +102,6 @@ export function SettingsPage() {
           </p>
 
           <div className="space-y-6">
-            {/* Download Path */}
-            <div>
-              <label className="text-[10px] text-gray-400 font-black uppercase tracking-widest block ml-1 mb-1.5">
-                Default Download Folder
-              </label>
-              <div className="flex gap-2 items-center">
-                <Input
-                  type="text"
-                  value={settings.downloadPath}
-                  onChange={(e) => setSettings((s) => ({ ...s, downloadPath: e.target.value }))}
-                  placeholder="~/Downloads/Buccaneer"
-                  className="font-mono"
-                />
-                <Button
-                  variant="accent"
-                  size="md"
-                  icon={FolderOpen}
-                  onClick={handleBrowseDownload}
-                  className="whitespace-nowrap"
-                >
-                  Browse
-                </Button>
-              </div>
-            </div>
-
             {/* VLC Path */}
             <div>
               <label className="text-[10px] text-gray-400 font-black uppercase tracking-widest block ml-1 mb-1.5">

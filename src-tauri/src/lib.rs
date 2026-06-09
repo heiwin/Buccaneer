@@ -3,6 +3,8 @@ use serde_json::{json, Value};
 use tauri::Manager;
 use std::sync::Mutex;
 
+use base64::Engine;
+
 const DEFAULT_TMDB_API_KEY: &str = "90d235c4803793948cf3cd65a6867565";
 
 pub struct TmdbState {
@@ -304,7 +306,7 @@ async fn search_apibay(client: &Client, query: &str) -> Result<Value, String> {
             let category = item["category"].as_str().unwrap_or("0").to_string();
 
             let magnet_url = if !info_hash.is_empty() {
-                format!("magnet:?xt=urn:btih:{}&dn={}", info_hash, name)
+                format!("magnet:?xt=urn:btih:{}&dn={}", info_hash, urlencoding::encode(&name))
             } else {
                 String::new()
             };
@@ -600,7 +602,9 @@ pub fn run() {
                         .unwrap_or(user_dirs.home_dir())
                         .join("Buccaneer")
                 } else {
-                    std::path::PathBuf::from("~/Downloads/Buccaneer")
+                    std::env::var("HOME")
+                        .map(|h| std::path::PathBuf::from(h).join("Downloads/Buccaneer"))
+                        .unwrap_or_else(|_| std::path::PathBuf::from("/tmp/Buccaneer"))
                 };
 
                 // Ensure dir exists
@@ -625,9 +629,24 @@ pub fn run() {
                 if let Ok(session) = librqbit::Session::new_with_opts(default_path.clone(), opts).await {
                     let session_arc = session; // Session::new_with_opts already returns Arc<Session>
 
+                    // Generate random credentials for the local HTTP API
+                    let password = format!("{}-{}",
+                        std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_nanos(),
+                        std::process::id()
+                    );
+                    let api_credentials = format!("Basic {}", base64::engine::general_purpose::STANDARD.encode(format!("buccaneer:{}", password)));
+                    let api_credentials_url = format!("buccaneer:{}", password);
+                    let api_opts = librqbit::http_api::HttpApiOptions {
+                        basic_auth: Some(("buccaneer".to_string(), password)),
+                        ..Default::default()
+                    };
+
                     // Create API and HTTP API
                     let api = librqbit::api::Api::new(session_arc.clone(), None, None);
-                    let http_api = librqbit::http_api::HttpApi::new(api, None);
+                    let http_api = librqbit::http_api::HttpApi::new(api, Some(api_opts));
 
                     // Start the HTTP server on port 3030
                     if let Ok(listener) = tokio::net::TcpListener::bind("127.0.0.1:3030").await {
@@ -648,15 +667,19 @@ pub fn run() {
                         )),
                         base_path: default_path.to_string_lossy().to_string(),
                         clear_streaming_on_exit: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true)),
+                        api_credentials: api_credentials.clone(),
+                        api_credentials_url,
                     });
 
                     // Clean up restored torrents whose output directory no longer exists
                     let cleanup_client = Client::new();
+                    let cleanup_credentials = api_credentials.clone();
                     tauri::async_runtime::spawn(async move {
                         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 
                         if let Ok(resp) = cleanup_client
                             .get("http://127.0.0.1:3030/torrents")
+                            .header("Authorization", &cleanup_credentials)
                             .send()
                             .await
                         {
@@ -732,13 +755,25 @@ pub fn run() {
                         let streaming_dir = std::path::Path::new(&base_path).join("Streaming");
                         log::info!("Deleting streaming directory: {:?}", streaming_dir);
                         
-                        // We might need to wait a tiny bit to ensure librqbit releases file locks
-                        std::thread::sleep(std::time::Duration::from_millis(500));
-                        
-                        if let Err(e) = std::fs::remove_dir_all(&streaming_dir) {
-                            log::error!("Failed to delete streaming directory: {}", e);
-                        } else {
-                            log::info!("Successfully deleted streaming directory.");
+                        // Retry with exponential backoff to ensure librqbit releases file locks
+                        let mut retries = 5;
+                        let mut delay_ms = 200;
+                        loop {
+                            match std::fs::remove_dir_all(&streaming_dir) {
+                                Ok(_) => {
+                                    log::info!("Successfully deleted streaming directory.");
+                                    break;
+                                }
+                                Err(e) => {
+                                    retries -= 1;
+                                    if retries == 0 {
+                                        log::error!("Failed to delete streaming directory after 5 retries: {}", e);
+                                        break;
+                                    }
+                                    std::thread::sleep(std::time::Duration::from_millis(delay_ms));
+                                    delay_ms *= 2;
+                                }
+                            }
                         }
                     }
 

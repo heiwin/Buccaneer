@@ -71,6 +71,18 @@ Pre-built installers are available on the [releases page](https://github.com/hei
 | Windows | `.msi`                                      |
 | Linux   | `.deb` / `.AppImage`                        |
 
+> **⚠️ macOS Unverified Developer Notice**
+>
+> The macOS `.dmg` builds are **not signed with an Apple Developer certificate** and will trigger a Gatekeeper warning when first opened.
+>
+> To open Buccaneer on macOS:
+> 1. **Right-click** (or Ctrl+click) the app → **Open**
+> 2. Click **Open** in the dialog
+>
+> Alternatively: **System Settings → Privacy & Security** → scroll down → click **Open Anyway** next to Buccaneer.
+>
+> These steps are only needed on the first launch.
+
 ---
 
 ## Key Design Decisions

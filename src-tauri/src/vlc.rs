@@ -23,7 +23,19 @@ pub async fn auto_detect_vlc() -> Result<Option<String>, String> {
 
     #[cfg(target_os = "linux")]
     {
-        // Try `which vlc`
+        // Check well-known VLC installation paths first
+        let known_paths = vec![
+            "/usr/bin/vlc",
+            "/snap/bin/vlc",
+            "/usr/local/bin/vlc",
+            "/usr/bin/vlc",
+        ];
+        for p in known_paths {
+            if std::path::Path::new(p).exists() {
+                return Ok(Some(p.to_string()));
+            }
+        }
+        // Fallback to `which vlc`
         if let Ok(output) = std::process::Command::new("which").arg("vlc").output() {
             if output.status.success() {
                 let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -38,7 +50,12 @@ pub async fn auto_detect_vlc() -> Result<Option<String>, String> {
 }
 
 #[tauri::command]
-pub async fn stream_with_vlc(stream_url: String, vlc_path: Option<String>, title: Option<String>) -> Result<(), String> {
+pub async fn stream_with_vlc(
+    stream_url: String,
+    vlc_path: Option<String>,
+    title: Option<String>,
+    state: tauri::State<'_, crate::torrent::TorrentState>,
+) -> Result<(), String> {
     let executable = vlc_path.unwrap_or_else(|| "vlc".to_string());
 
     // Validate that the VLC path exists and looks like a VLC executable
@@ -48,12 +65,27 @@ pub async fn stream_with_vlc(stream_url: String, vlc_path: Option<String>, title
             return Err(format!("VLC not found at '{}'", executable));
         }
         #[cfg(target_os = "macos")]
-        if !executable.contains("VLC") && !executable.ends_with("VLC") {
-            return Err(format!("'{}' does not appear to be a valid VLC path", executable));
+        {
+            // Require the binary filename to be exactly "VLC"
+            let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            if file_name != "VLC" {
+                return Err(format!("'{}' does not appear to be a valid VLC path", executable));
+            }
         }
         #[cfg(target_os = "windows")]
         if !executable.to_lowercase().contains("vlc") {
             return Err(format!("'{}' does not appear to be a valid VLC path", executable));
+        }
+        #[cfg(target_os = "linux")]
+        {
+            // Verify the binary is actually VLC by checking --version output
+            let output = std::process::Command::new(&executable)
+                .arg("--version")
+                .output()
+                .map_err(|_| format!("Failed to execute '{}'", executable))?;
+            if !String::from_utf8_lossy(&output.stdout).contains("VLC") {
+                return Err(format!("'{}' does not appear to be a valid VLC executable", executable));
+            }
         }
     }
 
@@ -76,6 +108,9 @@ pub async fn stream_with_vlc(stream_url: String, vlc_path: Option<String>, title
         }
     }
 
+    // Embed credentials in the stream URL so VLC can authenticate with the local API
+    let authenticated_url = stream_url.replacen("http://", &format!("http://{}@", state.api_credentials_url), 1);
+
     let mut cmd = std::process::Command::new(&executable);
     cmd.arg("--network-caching=10000");
     if let Some(t) = &title {
@@ -84,7 +119,7 @@ pub async fn stream_with_vlc(stream_url: String, vlc_path: Option<String>, title
     }
     // Use "--" to separate options from positional arguments
     cmd.arg("--");
-    cmd.arg(&stream_url);
+    cmd.arg(&authenticated_url);
 
     cmd.spawn()
         .map_err(|e| format!("Failed to launch VLC at '{}': {}", executable, e))?;

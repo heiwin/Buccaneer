@@ -35,6 +35,8 @@ pub struct TorrentState {
     pub streamed_torrents: Arc<Mutex<HashSet<usize>>>,
     pub base_path: String,
     pub clear_streaming_on_exit: Arc<AtomicBool>,
+    pub api_credentials: String,
+    pub api_credentials_url: String,
 }
 
 #[tauri::command]
@@ -74,6 +76,7 @@ pub async fn update_ratelimits(
     let _res = state.http_client
         .post("http://127.0.0.1:3030/torrents/limits")
         .header("Content-Type", "application/json")
+        .header("Authorization", &state.api_credentials)
         .json(&body)
         .send()
         .await
@@ -195,7 +198,12 @@ pub async fn get_active_torrents(
     state: State<'_, TorrentState>,
 ) -> Result<serde_json::Value, String> {
     let url = "http://127.0.0.1:3030/torrents";
-    let res = state.http_client.get(url).send().await.map_err(|e| e.to_string())?;
+    let res = state.http_client
+        .get(url)
+        .header("Authorization", &state.api_credentials)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
     let mut json: serde_json::Value = res.json().await.map_err(|e| e.to_string())?;
 
     if let Some(torrents) = json.get_mut("torrents").and_then(|t| t.as_array_mut()) {
@@ -268,8 +276,15 @@ pub async fn get_torrent_details(
     state: State<'_, TorrentState>,
     id: String,
 ) -> Result<serde_json::Value, String> {
+    // Validate id is numeric to prevent path traversal
+    id.parse::<usize>().map_err(|_| "Invalid torrent ID: must be numeric".to_string())?;
     let url = format!("http://127.0.0.1:3030/torrents/{}", id);
-    let res = state.http_client.get(&url).send().await.map_err(|e| e.to_string())?;
+    let res = state.http_client
+        .get(&url)
+        .header("Authorization", &state.api_credentials)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
     let json: serde_json::Value = res.json().await.map_err(|e| e.to_string())?;
     Ok(json)
 }
