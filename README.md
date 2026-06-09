@@ -1,4 +1,4 @@
-# Buccaneer
+# <img src="src/assets/icon.png" width="32" height="32" style="vertical-align: middle;" /> Buccaneer
 
 **Buccaneer** is a modern, high-performance desktop application for discovering, streaming, and downloading movies and TV shows via BitTorrent. Built on **Tauri v2**, it combines a React frontend with a native Rust backend for a lightweight, secure, and fast experience.
 
@@ -28,21 +28,17 @@
 
 ## Features
 
-- **Search Torrents** — Query multiple trackers simultaneously via the Knaben API (1337x, The Pirate Bay, YTS, Nyaa.si), with automatic fallback to apibay.org. Also supports dedicated YTS (movies) and EZTV (TV series) search sources.
-- **Stream with VLC** — Auto-detect VLC on macOS, Windows, or Linux, then hand off the stream URL with optimized network caching (10 s pre-buffer).
-- **Download Torrents** — Full download management with pause, resume, and remove (with or without file deletion). Optional file selection before downloading or streaming.
-- **TMDB Integration** — Fetch trending movies and TV series (this week), view rich details (cast, trailers, genres, runtime, ratings), and browse a full cast gallery.
-- **Seasons & Episodes Browser** — For TV series, browse seasons and episodes with an episode-by-episode view. Mark individual episodes as watched. Quick-search any season or episode across torrent sources.
-- **Discover** — Explore movies and TV by genre, release year, rating threshold, original language, and streaming platform (Netflix, Disney+, Apple TV+, etc.).
-- **Home Page Trending** — Trending movies and TV series carousels + streaming provider section showing what's available on each platform.
-- **Inline TMDB Search** — Search TMDB directly from the home page to quickly navigate to any movie or TV show.
-- **Favorites** — Save titles to a persistent favorites list with Tauri store.
-- **Watch Tracking** — Mark movies or individual TV episodes as watched (persisted across sessions).
-- **Library Persistence** — Favorites and watch history survive app restarts via `@tauri-apps/plugin-store`.
-- **Settings** — Configure TMDB API key, VLC path (auto-detect or manual), default download folder, download/upload speed limits, search filters (hide unsafe, hide adult content), streaming providers to show on the home page, and streaming folder cleanup behavior.
-- **Deep Links** — Support for `buccaneer://` deep link protocol.
-- **Crash Recovery** — On startup, orphaned streaming directories are cleaned up and stale torrent entries (whose output folders no longer exist) are removed.
-- **Graceful Shutdown** — Confirms with the user when active downloads are in progress; optionally clears all streamed files on exit.
+- **Torrent Search** — Multi-tracker via Knaben (1337x, TPB, YTS, Nyaa.si) with apibay fallback.
+- **Stream & Download** — Stream in VLC or download with pause/resume and file selection.
+- **TMDB Integration** — Trending, details, cast, trailers, ratings; full Discover by genre/year/platform.
+- **TV Seasons & Episodes** — Episode browser, mark watched, quick-search across torrent sources.
+- **Favorites & History** — Persistent library with watched tracking across sessions.
+- **Settings** — API key, VLC path, speed limits, search filters, streaming providers, cleanup.
+- **Crash Recovery** — Auto-cleanup of orphaned streaming files on startup.
+- **Graceful Shutdown** — Confirms active downloads; optionally clears streamed files on exit.
+- **Deep Links** — `buccaneer://` protocol support.
+
+& much more.
 
 ---
 
@@ -73,11 +69,12 @@ The bundled app will be in `src-tauri/target/release/bundle/`.
 
 Pre-built installers are available on the [releases page](https://github.com/heiwin/Buccaneer/releases).
 
-| OS      | Format                                      |
-| ------- | ------------------------------------------- |
-| macOS   | `.dmg` (Intel & Apple Silicon)              |
-| Windows | `.msi`                                      |
-| Linux   | `.deb` / `.AppImage`                        |
+| OS                     | Download                                                                                                                      |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| **macOS** (Apple Silicon) | [`Buccaneer_0.9.3_aarch64.dmg`](https://github.com/heiwin/Buccaneer/releases/download/v0.9.3/Buccaneer_0.9.3_aarch64.dmg) |
+| **macOS** (Intel Mac)     | [`Buccaneer_0.9.3_x64.dmg`](https://github.com/heiwin/Buccaneer/releases/download/v0.9.3/Buccaneer_0.9.3_x64.dmg)          |
+| **Windows**               | [`Buccaneer_0.9.3_x64_en-US.msi`](https://github.com/heiwin/Buccaneer/releases/download/v0.9.3/Buccaneer_0.9.3_x64_en-US.msi) |
+| **Linux**                 | [`Buccaneer_0.9.3_amd64.AppImage`](https://github.com/heiwin/Buccaneer/releases/download/v0.9.3/Buccaneer_0.9.3_amd64.AppImage) · [`Buccaneer_0.9.3_amd64.deb`](https://github.com/heiwin/Buccaneer/releases/download/v0.9.3/Buccaneer_0.9.3_amd64.deb) |
 
 > **⚠️ macOS Unverified Developer Notice**
 >
