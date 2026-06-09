@@ -35,11 +35,6 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "macOS": {
-      "signing": {
-        "identity": "-"
-      }
-    },
     "android": {
       "debugApplicationIdSuffix": ".debug"
     }
