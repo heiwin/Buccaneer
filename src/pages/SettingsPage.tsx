@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Settings, Save, RotateCcw, Eye, EyeOff, Shield, ShieldOff, Trash2, FolderOpen, RefreshCw } from 'lucide-react';
+import { Settings, Save, RotateCcw, Shield, ShieldOff, Trash2, FolderOpen, RefreshCw } from 'lucide-react';
 import { loadSettings, saveSettings, DEFAULTS, type AppSettings } from '../api/settings';
 import { invoke } from '@tauri-apps/api/core';
 import { open, message } from '@tauri-apps/plugin-dialog';
@@ -12,7 +12,7 @@ import { STREAMING_PROVIDERS, REGIONS } from '../constants/streaming';
 export function SettingsPage() {
   const [settings, setSettings] = useState<AppSettings>(DEFAULTS);
   const [saved, setSaved] = useState(false);
-  const [showApiKey, setShowApiKey] = useState(false);
+  const [apiKey, setApiKey] = useState('');
 
   // Load from store on mount
   useEffect(() => {
@@ -27,7 +27,7 @@ export function SettingsPage() {
       await saveSettings(settings);
       await invoke('update_clear_streaming_setting', { value: settings.clearStreamingOnExit }).catch(console.error);
       await invoke('update_ratelimits', { downloadKbps: settings.downloadLimit, uploadKbps: settings.uploadLimit }).catch(console.error);
-      await invoke('set_tmdb_api_key', { key: settings.tmdbApiKey }).catch(console.error);
+      await invoke('set_tmdb_api_key', { key: apiKey }).catch(console.error);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch (e: unknown) {
@@ -76,22 +76,13 @@ export function SettingsPage() {
             Used to fetch movie and TV metadata. Get your key at{' '}
             <span className="text-zinc-500">themoviedb.org/settings/api</span>
           </p>
-          <div className="relative">
-            <Input
-              type={showApiKey ? 'text' : 'password'}
-              value={settings.tmdbApiKey}
-              onChange={(e) => setSettings((s) => ({ ...s, tmdbApiKey: e.target.value }))}
-              placeholder="Leave empty for default key"
-              className="font-mono pr-12"
-            />
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => setShowApiKey((v) => !v)}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 transition-colors z-10 w-auto h-auto p-1 bg-transparent hover:bg-transparent"
-              icon={showApiKey ? EyeOff : Eye}
-            />
-          </div>
+          <Input
+            type="password"
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
+            placeholder="Leave empty for default key"
+            className="font-mono"
+          />
         </section>
 
         {/* System Settings */}
@@ -355,11 +346,7 @@ export function SettingsPage() {
           </Button>
         </div>
 
-        {/* Note about API key */}
-        <p className="text-xs text-zinc-700 leading-relaxed">
-          Note: changes to the TMDB API key require restarting the app to take effect, as the key is
-          currently embedded in the Rust backend. This will be fixed in a future update to read from the store at runtime.
-        </p>
+
 
         <ConfirmDialog
           isOpen={showResetConfirm}

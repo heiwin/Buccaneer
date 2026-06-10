@@ -3,7 +3,6 @@ import { load, type Store } from '@tauri-apps/plugin-store';
 const STORE_FILE = 'settings.json';
 
 export type AppSettings = {
-  tmdbApiKey: string;
   hideUnsafe: boolean;
   hideXxx: boolean;
   vlcPath: string;
@@ -15,7 +14,6 @@ export type AppSettings = {
 };
 
 export const DEFAULTS: AppSettings = {
-  tmdbApiKey: '',
   hideUnsafe: true,
   hideXxx: true,
   vlcPath: '',
