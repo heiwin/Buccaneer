@@ -25,6 +25,9 @@ function App() {
     loadSettings().then((s) => {
       invoke('update_clear_streaming_setting', { value: s.clearStreamingOnExit }).catch(console.error);
       invoke('update_ratelimits', { downloadKbps: s.downloadLimit, uploadKbps: s.uploadLimit }).catch(console.error);
+      if (s.downloadPath) {
+        invoke('set_download_path', { path: s.downloadPath }).catch(console.error);
+      }
     });
 
     const VALID_ROUTES = new Set([

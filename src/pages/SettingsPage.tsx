@@ -28,6 +28,7 @@ export function SettingsPage() {
       await invoke('update_clear_streaming_setting', { value: settings.clearStreamingOnExit }).catch(console.error);
       await invoke('update_ratelimits', { downloadKbps: settings.downloadLimit, uploadKbps: settings.uploadLimit }).catch(console.error);
       await invoke('set_tmdb_api_key', { key: apiKey }).catch(console.error);
+      await invoke('set_download_path', { path: settings.downloadPath }).catch(console.error);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch (e: unknown) {
@@ -93,6 +94,36 @@ export function SettingsPage() {
           </p>
 
           <div className="space-y-6">
+            {/* Download Folder */}
+            <div>
+              <label className="text-[10px] text-gray-400 font-black uppercase tracking-widest block ml-1 mb-1.5">
+                Download Folder
+              </label>
+              <div className="flex gap-2 items-center">
+                <Input
+                  type="text"
+                  value={settings.downloadPath}
+                  onChange={(e) => setSettings((s) => ({ ...s, downloadPath: e.target.value }))}
+                  placeholder="Leave empty for default (~/Downloads/Buccaneer)"
+                  className="font-mono"
+                />
+                <Button
+                  variant="accent"
+                  size="md"
+                  icon={FolderOpen}
+                  onClick={async () => {
+                    const selected = await open({ directory: true, multiple: false });
+                    if (selected && typeof selected === 'string') {
+                      setSettings(s => ({ ...s, downloadPath: selected }));
+                    }
+                  }}
+                  className="whitespace-nowrap"
+                >
+                  Browse
+                </Button>
+              </div>
+            </div>
+
             {/* VLC Path */}
             <div>
               <label className="text-[10px] text-gray-400 font-black uppercase tracking-widest block ml-1 mb-1.5">

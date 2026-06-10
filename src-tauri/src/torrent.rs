@@ -33,10 +33,41 @@ pub struct TorrentState {
     pub session: Arc<Session>,
     pub http_client: reqwest::Client,
     pub streamed_torrents: Arc<Mutex<HashSet<usize>>>,
-    pub base_path: String,
+    pub base_path: Arc<Mutex<String>>,
     pub clear_streaming_on_exit: Arc<AtomicBool>,
     pub api_credentials: String,
     pub api_credentials_url: String,
+}
+
+#[tauri::command]
+pub async fn set_download_path(
+    state: State<'_, TorrentState>,
+    path: String,
+) -> Result<(), String> {
+    let resolved = if path.trim().is_empty() {
+        // Fall back to system Downloads folder
+        use directories::UserDirs;
+        let default = if let Some(user_dirs) = UserDirs::new() {
+            user_dirs
+                .download_dir()
+                .unwrap_or(user_dirs.home_dir())
+                .join("Buccaneer")
+                .to_string_lossy()
+                .to_string()
+        } else {
+            std::env::var("HOME")
+                .map(|h| std::path::PathBuf::from(h).join("Downloads/Buccaneer"))
+                .unwrap_or_else(|_| std::path::PathBuf::from("/tmp/Buccaneer"))
+                .to_string_lossy()
+                .to_string()
+        };
+        default
+    } else {
+        path
+    };
+    std::fs::create_dir_all(&resolved).map_err(|e| e.to_string())?;
+    *state.base_path.lock().map_err(|e| e.to_string())? = resolved;
+    Ok(())
 }
 
 #[tauri::command]
@@ -110,10 +141,11 @@ pub async fn add_torrent(
     validate_magnet_or_url(&magnet_or_url)?;
     let add_torrent = AddTorrent::from_url(&magnet_or_url);
     
+    let base = state.base_path.lock().map_err(|e| e.to_string())?.clone();
     let output_folder = if stream {
-        Some(std::path::Path::new(&state.base_path).join("Streaming").to_string_lossy().to_string())
+        Some(std::path::Path::new(&base).join("Streaming").to_string_lossy().to_string())
     } else {
-        None
+        Some(base)
     };
 
     let options = AddTorrentOptions {

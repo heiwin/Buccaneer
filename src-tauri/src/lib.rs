@@ -561,6 +561,7 @@ pub fn run() {
             vlc::stream_with_vlc,
             torrent::update_clear_streaming_setting,
             torrent::update_ratelimits,
+            torrent::set_download_path,
         ])
         .setup(|app| {
             // On Linux, register the deep link scheme at runtime via xdg-settings.
@@ -665,7 +666,9 @@ pub fn run() {
                         streamed_torrents: std::sync::Arc::new(std::sync::Mutex::new(
                             std::collections::HashSet::new(),
                         )),
-                        base_path: default_path.to_string_lossy().to_string(),
+                        base_path: std::sync::Arc::new(std::sync::Mutex::new(
+                            default_path.to_string_lossy().to_string()
+                        )),
                         clear_streaming_on_exit: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true)),
                         api_credentials: api_credentials.clone(),
                         api_credentials_url,
@@ -733,7 +736,7 @@ pub fn run() {
                         state.session.clone(), 
                         ids,
                         state.clear_streaming_on_exit.load(std::sync::atomic::Ordering::Relaxed),
-                        state.base_path.clone()
+                        state.base_path.lock().map(|b| b.clone()).unwrap_or_default(),
                     )
                 };
 

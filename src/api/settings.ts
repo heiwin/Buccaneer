@@ -6,6 +6,7 @@ export type AppSettings = {
   hideUnsafe: boolean;
   hideXxx: boolean;
   vlcPath: string;
+  downloadPath: string;
   clearStreamingOnExit: boolean;
   downloadLimit: number;
   uploadLimit: number;
@@ -17,6 +18,7 @@ export const DEFAULTS: AppSettings = {
   hideUnsafe: true,
   hideXxx: true,
   vlcPath: '',
+  downloadPath: '',
   clearStreamingOnExit: true,
   downloadLimit: 0,
   uploadLimit: 0,
