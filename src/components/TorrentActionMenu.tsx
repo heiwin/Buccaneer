@@ -53,13 +53,14 @@ export function TorrentActionMenu({ torrent, onClose, hideFileSelection }: Torre
 
   const handleStreamVlc = async () => {
     setLoading(true);
+    let settings: Awaited<ReturnType<typeof loadSettings>> | null = null;
     try {
       const active = await getActiveTorrents();
       for (const t of active) {
         if (t.isStream) await pauseTorrent(t.id);
       }
       const id = await addTorrent(magnetUrl, true, getOnlyFilesArgs());
-      const settings = await loadSettings();
+      settings = await loadSettings();
       await new Promise((r) => setTimeout(r, 1000));
       const onlyFiles = getOnlyFilesArgs();
       let fileIndex = onlyFiles && onlyFiles.length > 0 ? onlyFiles[0] : 0;
@@ -82,7 +83,7 @@ export function TorrentActionMenu({ torrent, onClose, hideFileSelection }: Torre
     } catch (e: unknown) {
       console.error(e instanceof Error ? e.message : String(e));
       const detected = await autoDetectVlc();
-      if (!detected && !settings.vlcPath) {
+      if (!detected && (!settings || !settings.vlcPath)) {
         setVlcDialog('not-found');
       } else {
         setVlcDialog('launch-error');
