@@ -5,7 +5,7 @@ import { ALLOWED_TRACKERS } from '../types/knaben';
 import { TorrentActionMenu } from './TorrentActionMenu';
 import { TorrentRow } from './TorrentRow';
 import { Select, ErrorBanner } from './ui';
-import { QUALITY_OPTIONS, LANGUAGE_OPTIONS } from '../constants/filters';
+import { QUALITY_OPTIONS, LANGUAGE_OPTIONS, LANGUAGE_SUFFIX } from '../constants/filters';
 
 interface TorrentListProps {
   results: TorrentResult[];
@@ -30,9 +30,23 @@ export const TorrentList: React.FC<TorrentListProps> = ({
   const [providerFilter, setProviderFilter] = useState('All');
 
   const filteredResults = useMemo(() => results.filter(t => {
+    const title = t.title.toLowerCase();
+
     if (providerFilter !== 'All' && t.tracker !== providerFilter) return false;
+
+    if (qualityFilter) {
+      const q = qualityFilter.toLowerCase();
+      const matches = title.includes(q) || (q === '2160p' && title.includes('4k'));
+      if (!matches) return false;
+    }
+
+    if (languageFilter) {
+      const suffix = LANGUAGE_SUFFIX[languageFilter];
+      if (suffix && !title.includes(suffix)) return false;
+    }
+
     return true;
-  }), [results, providerFilter]);
+  }), [results, providerFilter, qualityFilter, languageFilter]);
 
 
 

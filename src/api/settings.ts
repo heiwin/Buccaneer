@@ -12,6 +12,7 @@ export type AppSettings = {
   uploadLimit: number;
   streamingRegion: string;
   streamingProviders: number[];
+  notificationsEnabled: boolean;
 };
 
 export const DEFAULTS: AppSettings = {
@@ -24,6 +25,7 @@ export const DEFAULTS: AppSettings = {
   uploadLimit: 0,
   streamingRegion: 'IT',
   streamingProviders: [350],
+  notificationsEnabled: true,
 };
 
 let storeInstance: Store | null = null;

@@ -16,6 +16,12 @@
         },
         {
           "url": "https://www.youtube.com/*"
+        },
+        {
+          "url": "https://www.themoviedb.org/*"
+        },
+        {
+          "url": "https://github.com/heiwin/Buccaneer/*"
         }
       ]
     },
@@ -23,6 +29,7 @@
     "store:allow-set",
     "store:allow-get",
     "store:allow-save",
-    "dialog:default"
+    "dialog:default",
+    "notification:default"
   ]
 }

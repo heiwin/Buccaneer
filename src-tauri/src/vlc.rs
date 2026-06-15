@@ -11,6 +11,46 @@ pub async fn auto_detect_vlc() -> Result<Option<String>, String> {
                 return Ok(Some(p.to_string()));
             }
         }
+
+        // Try `where vlc` (Windows equivalent of `which`)
+        if let Ok(output) = std::process::Command::new("where").arg("vlc").output() {
+            if output.status.success() {
+                let path = String::from_utf8_lossy(&output.stdout)
+                    .lines()
+                    .next()
+                    .unwrap_or("")
+                    .trim()
+                    .to_string();
+                if !path.is_empty() {
+                    return Ok(Some(path));
+                }
+            }
+        }
+
+        // Try Windows registry
+        if let Ok(output) = std::process::Command::new("reg")
+            .args(&[
+                "query",
+                "HKEY_LOCAL_MACHINE\\SOFTWARE\\VideoLAN\\VLC",
+                "/v",
+                "InstallDir",
+            ])
+            .output()
+        {
+            if output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                for line in stdout.lines() {
+                    let trimmed = line.trim();
+                    if let Some(pos) = trimmed.find("REG_SZ") {
+                        let dir = trimmed[pos + 6..].trim();
+                        let exe = std::path::Path::new(dir).join("vlc.exe");
+                        if exe.exists() {
+                            return Ok(Some(exe.to_string_lossy().to_string()));
+                        }
+                    }
+                }
+            }
+        }
     }
 
     #[cfg(target_os = "macos")]

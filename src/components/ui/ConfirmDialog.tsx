@@ -15,6 +15,7 @@ interface ConfirmDialogProps {
   cancelLabel?: string;
   kind?: DialogKind;
   loading?: boolean;
+  hideCancel?: boolean;
 }
 
 const kindConfig: Record<DialogKind, {
@@ -53,6 +54,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
   cancelLabel = 'Cancel',
   kind = 'info',
   loading = false,
+  hideCancel = false,
 }) => {
   const config = kindConfig[kind];
   const IconComponent = config.icon;
@@ -73,17 +75,19 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
 
         {/* Buttons */}
         <div className="flex gap-3 w-full">
-          <Button
-            variant="ghost"
-            className="flex-1"
-            onClick={onClose}
-            disabled={loading}
-          >
-            {cancelLabel}
-          </Button>
+          {!hideCancel && (
+            <Button
+              variant="ghost"
+              className="flex-1"
+              onClick={onClose}
+              disabled={loading}
+            >
+              {cancelLabel}
+            </Button>
+          )}
           <Button
             variant={config.confirmVariant}
-            className="flex-1"
+            className={hideCancel ? "w-full" : "flex-1"}
             onClick={() => {
               onConfirm();
               onClose();

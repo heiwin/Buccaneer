@@ -1,6 +1,9 @@
+import { useState, useEffect } from 'react';
 import { NavLink } from 'react-router-dom';
-import { Home, Compass, Search, Settings, HardDrive, Heart } from 'lucide-react';
+import { Home, Compass, Search, Settings, HardDrive, Heart, ExternalLink, CheckCircle2 } from 'lucide-react';
 import appIcon from '../assets/icon.png';
+import { checkForUpdate, type UpdateInfo } from '../api/updater';
+import { open } from '@tauri-apps/plugin-shell';
 
 interface NavItemProps {
   to: string;
@@ -28,6 +31,14 @@ function NavItem({ to, icon, label }: NavItemProps) {
 }
 
 export function Sidebar() {
+  const [update, setUpdate] = useState<UpdateInfo | null>(null);
+
+  useEffect(() => {
+    checkForUpdate()
+      .then(setUpdate)
+      .catch(() => { /* silently ignore */ });
+  }, []);
+
   return (
     <aside className="w-20 lg:w-64 border-r border-zinc-800/50 flex flex-col justify-between py-8 shrink-0">
       <div>
@@ -51,7 +62,29 @@ export function Sidebar() {
         </nav>
       </div>
 
-      <div className="px-4 lg:px-6">
+      <div className="flex flex-col gap-2 px-4 lg:px-6">
+        {update && (
+          update.available ? (
+            <button
+              onClick={() => open('https://github.com/heiwin/Buccaneer/releases/latest')}
+              title={`Update ${update.latestVersion} available — click to download`}
+              className="flex items-center gap-2 px-3 py-2 mb-2 text-xs rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20 transition-colors cursor-pointer"
+            >
+              <ExternalLink size={14} />
+              <span className="hidden lg:inline font-semibold">Update {update.latestVersion} available</span>
+              <span className="lg:hidden font-semibold">⬆</span>
+            </button>
+          ) : (
+            <div
+              title={`Buccaneer is up to date (${update.currentVersion})`}
+              className="flex items-center gap-2 px-3 py-2 mb-2 text-xs rounded-xl bg-zinc-800/30 border border-zinc-700/40 text-zinc-500"
+            >
+              <CheckCircle2 size={14} />
+              <span className="hidden lg:inline font-medium">Up to date ({update.currentVersion})</span>
+              <span className="lg:hidden">✓</span>
+            </div>
+          )
+        )}
         <NavItem to="/settings" icon={<Settings size={20} />} label="Settings" />
       </div>
     </aside>

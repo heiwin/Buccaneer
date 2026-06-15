@@ -66,6 +66,26 @@ jobs:
           releaseBody: |
             ## Buccaneer ${{ github.ref_name }}
 
+            ### New Features
+            - **GitHub version checker** — sidebar banner shows when an update is available
+            - **Smart stream management** — starting a new stream auto-pauses active stream torrents
+            - **Download notifications** — OS notification when a download completes (toggle in Settings)
+            - **Download Manager enhancements** — file size, download progress, ETA displayed per torrent
+            - **Open in file manager** — clickable save path opens the folder
+
+            ### Quality-of-Life
+            - **CAM/Telesync filter** — low-quality releases removed from all search sources (Knaben, Apibay, YTS, EZTV)
+            - **Cast carousel arrows** — scrollable cast list on detail pages
+            - **Auto-navigate to Downloads** when streaming starts
+            - **Quality/language filters** now functional in torrent list
+            - **TMDB API link** in Settings opens correctly
+
+            ### Bug Fixes
+            - **VLC picks wrong file** — title-scoring algorithm selects the best video file
+            - **Windows VLC path** — registry + `where` fallback for auto-detection
+            - **VLC config dialog** — shows "Go to Settings" when VLC is not found
+            - **ConfirmDialog crash** — missing `hideCancel` prop destructure fixed
+
             Download the appropriate asset for your platform:
             - **macOS (Intel)**: `.dmg` (x86_64)
             - **macOS (Apple Silicon)**: `.dmg` (aarch64)

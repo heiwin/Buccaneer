@@ -192,6 +192,15 @@ async fn search_tmdb(query: String, tmdb_state: tauri::State<'_, TmdbState>, htt
 
 // ─── Knaben Torrent Command ───────────────────────────────────────────────────
 
+fn is_cam_or_telesync(title: &str) -> bool {
+    let lower = title.to_lowercase();
+    let keywords = [
+        "camrip", "telesync", "hdts", "workprint",
+        "dvdscr", "dvd-screener", "telecine", "hdtc",
+    ];
+    keywords.iter().any(|&kw| lower.contains(kw))
+}
+
 #[tauri::command]
 async fn search_torrents(query: String, media_type: Option<String>, source: Option<String>, tmdb_state: tauri::State<'_, TmdbState>, http_state: tauri::State<'_, HttpState>) -> Result<Value, String> {
     let api_key = tmdb_key!(tmdb_state);
@@ -210,6 +219,12 @@ async fn search_torrents(query: String, media_type: Option<String>, source: Opti
                                 .and_then(|t| t.as_str())
                                 .map(|t| ALLOWED_TRACKERS.contains(&t))
                                 .unwrap_or(false)
+                        });
+                        hits.retain(|hit| {
+                            hit.get("title")
+                                .and_then(|t| t.as_str())
+                                .map(|t| !is_cam_or_telesync(t))
+                                .unwrap_or(true)
                         });
                         if !hits.is_empty() {
                             return Ok(json);
@@ -281,7 +296,7 @@ async fn search_apibay(client: &Client, query: &str) -> Result<Value, String> {
 
     let items: Vec<Value> = res.json().await.map_err(|e| format!("apibay parse: {}", e))?;
 
-    let hits: Vec<Value> = items
+    let mut hits: Vec<Value> = items
         .into_iter()
         .map(|item| {
             let id = item["id"].as_str().unwrap_or("0").to_string();
@@ -330,6 +345,10 @@ async fn search_apibay(client: &Client, query: &str) -> Result<Value, String> {
         })
         .collect();
 
+    hits.retain(|item| {
+        item["title"].as_str().map(|t| !is_cam_or_telesync(t)).unwrap_or(true)
+    });
+
     Ok(json!({
         "total": { "value": hits.len(), "relation": "eq" },
         "max_score": null,
@@ -356,7 +375,7 @@ async fn search_yts(client: &Client, query: &str) -> Result<Value, String> {
 
     let movies = json["data"]["movies"].as_array().cloned().unwrap_or_default();
 
-    let hits: Vec<Value> = movies
+    let mut hits: Vec<Value> = movies
         .iter()
         .flat_map(|movie| {
             let title = movie["title_english"]
@@ -403,6 +422,10 @@ async fn search_yts(client: &Client, query: &str) -> Result<Value, String> {
             })
         })
         .collect();
+
+    hits.retain(|item| {
+        item["title"].as_str().map(|t| !is_cam_or_telesync(t)).unwrap_or(true)
+    });
 
     Ok(json!({
         "total": { "value": hits.len(), "relation": "eq" },
@@ -479,7 +502,7 @@ async fn search_eztv(client: &Client, query: &str, api_key: &str) -> Result<Valu
 
     let torrents = eztv_json["torrents"].as_array().cloned().unwrap_or_default();
 
-    let hits: Vec<Value> = torrents
+    let mut hits: Vec<Value> = torrents
         .iter()
         .map(|t| {
             let hash = t["hash"].as_str().unwrap_or("").to_string();
@@ -511,6 +534,10 @@ async fn search_eztv(client: &Client, query: &str, api_key: &str) -> Result<Valu
         })
         .collect();
 
+    hits.retain(|item| {
+        item["title"].as_str().map(|t| !is_cam_or_telesync(t)).unwrap_or(true)
+    });
+
     let count = eztv_json["torrents_count"].as_u64().unwrap_or(0);
 
     Ok(json!({
@@ -527,11 +554,80 @@ pub mod vlc;
 // ─── App Entry Point ─────────────────────────────────────────────────────────
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+#[tauri::command]
+async fn check_update() -> Result<serde_json::Value, String> {
+    let client = reqwest::Client::builder()
+        .user_agent("Buccaneer")
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let resp = client
+        .get("https://api.github.com/repos/heiwin/Buccaneer/releases/latest")
+        .send()
+        .await
+        .map_err(|e| format!("Failed to check for updates: {}", e))?;
+
+    if !resp.status().is_success() {
+        return Ok(serde_json::json!({ "available": false, "error": "GitHub API rate limited" }));
+    }
+
+    let json: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+
+    let latest_tag = json["tag_name"]
+        .as_str()
+        .unwrap_or("v0.0.0")
+        .trim_start_matches('v');
+
+    let current = env!("CARGO_PKG_VERSION");
+    let available = if let (Ok(latest), Ok(cur)) = (
+        semver::Version::parse(latest_tag),
+        semver::Version::parse(current),
+    ) {
+        latest > cur
+    } else {
+        latest_tag != current
+    };
+
+    Ok(serde_json::json!({
+        "available": available,
+        "latestVersion": json["tag_name"].as_str().unwrap_or("unknown"),
+        "downloadUrl": "https://github.com/heiwin/Buccaneer/releases/latest",
+        "currentVersion": current,
+    }))
+}
+
+#[tauri::command]
+fn open_in_file_manager(path: String) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| format!("Failed to open directory: {}", e))?;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| format!("Failed to open directory: {}", e))?;
+    }
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| format!("Failed to open directory: {}", e))?;
+    }
+    Ok(())
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_store::Builder::new().build())
         .manage(TmdbState {
             api_key: Mutex::new(DEFAULT_TMDB_API_KEY.to_string()),
@@ -550,6 +646,8 @@ pub fn run() {
             get_genres,
             search_tmdb,
             search_torrents,
+            check_update,
+            open_in_file_manager,
             torrent::add_torrent,
             torrent::get_torrent_metadata,
             torrent::pause_torrent,

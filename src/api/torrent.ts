@@ -4,6 +4,8 @@ export interface TorrentInfo {
   id: string;
   name: string;
   progress: number;
+  totalBytes: number;
+  downloadedBytes: number;
   downloadSpeed: number;
   uploadSpeed: number;
   seeds: number;
@@ -83,6 +85,8 @@ export async function getActiveTorrents(): Promise<TorrentInfo[]> {
       id: t.id?.toString() || '',
       name: t.name || t.info_hash || 'Unknown',
       progress: progress,
+      totalBytes: stats.total_bytes || 0,
+      downloadedBytes: stats.progress_bytes || 0,
       downloadSpeed: live.download_speed?.mbps ? live.download_speed.mbps * 1024 * 1024 / 8 : 0, 
       uploadSpeed: live.upload_speed?.mbps ? live.upload_speed.mbps * 1024 * 1024 / 8 : 0,
       seeds: peerStats.live || 0,
@@ -95,6 +99,10 @@ export async function getActiveTorrents(): Promise<TorrentInfo[]> {
   });
 }
 
+export async function openInFileManager(path: string): Promise<void> {
+  return await invoke('open_in_file_manager', { path });
+}
+
 export async function autoDetectVlc(): Promise<string | null> {
   return await invoke('auto_detect_vlc');
 }
@@ -104,12 +112,69 @@ export async function streamWithVlc(streamUrl: string, vlcPath: string | null, t
 }
 
 export interface TorrentDetailsResponse {
+  name?: string;
   files?: { name: string; length: number }[];
   [key: string]: unknown;
 }
 
 export async function getTorrentDetails(id: string): Promise<TorrentDetailsResponse> {
   return await invoke('get_torrent_details', { id });
+}
+
+export const VIDEO_EXTENSIONS = new Set([
+  '.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm',
+  '.m4v', '.mpg', '.mpeg', '.ts', '.m2ts', '.3gp', '.ogm', '.ogv',
+]);
+
+function normalizeName(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+export function findBestVideoFileIndex(
+  files: { name: string; length: number }[],
+  torrentTitle: string,
+): number {
+  const videoFiles = files
+    .map((f, i) => ({ ...f, index: i }))
+    .filter((f) => {
+      const match = f.name.toLowerCase().match(/\.[a-z0-9]+$/);
+      return match && VIDEO_EXTENSIONS.has(match[0]);
+    });
+
+  if (videoFiles.length === 0) return 0;
+  if (videoFiles.length === 1) return videoFiles[0].index;
+
+  const cleanTitle = normalizeName(torrentTitle);
+  const titleWords = cleanTitle.split(' ').filter((w) => w.length > 2);
+
+  let bestFile = videoFiles[0];
+  let bestScore = -1;
+
+  for (const file of videoFiles) {
+    let score = 0;
+    const cleanName = normalizeName(file.name.replace(/\.[^.]+$/, ''));
+
+    if (titleWords.length > 0) {
+      const matchCount = titleWords.filter((w) => cleanName.includes(w)).length;
+      score += (matchCount / titleWords.length) * 100;
+    }
+
+    if (!cleanName.includes('sample')) score += 50;
+
+    const maxSize = Math.max(...videoFiles.map((f) => f.length));
+    if (maxSize > 0) score += (file.length / maxSize) * 30;
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestFile = file;
+    }
+  }
+
+  return bestFile.index;
 }
 
 export async function getTorrentMetadata(magnetOrUrl: string): Promise<FileNode[]> {

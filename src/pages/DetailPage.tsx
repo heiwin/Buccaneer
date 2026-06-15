@@ -307,7 +307,7 @@ export function DetailPage({ mediaType }: DetailPageProps) {
         {cast.length > 0 && (
           <section className="mb-10">
             <h2 className="text-base font-bold uppercase tracking-widest text-zinc-500 mb-4">Cast</h2>
-            <div className="flex gap-4 overflow-x-auto pb-2" style={{ scrollbarWidth: 'none' }}>
+            <Carousel contentClassName="gap-4 pb-2">
               {cast.map((member) => (
                 <div key={member.id} className="shrink-0 w-24 text-center">
                   <div className="w-24 h-24 rounded-full overflow-hidden border-2 border-zinc-800 mb-2 mx-auto">
@@ -321,7 +321,7 @@ export function DetailPage({ mediaType }: DetailPageProps) {
                   <p className="text-[10px] text-zinc-500 mt-0.5 line-clamp-1">{member.character}</p>
                 </div>
               ))}
-            </div>
+            </Carousel>
           </section>
         )}
 

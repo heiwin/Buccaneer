@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
-import { Settings, Save, RotateCcw, Shield, ShieldOff, Trash2, FolderOpen, RefreshCw } from 'lucide-react';
+import { Settings, Save, RotateCcw, Shield, ShieldOff, Trash2, FolderOpen, RefreshCw, HardDrive } from 'lucide-react';
 import { loadSettings, saveSettings, DEFAULTS, type AppSettings } from '../api/settings';
 import { invoke } from '@tauri-apps/api/core';
-import { open, message } from '@tauri-apps/plugin-dialog';
+import { open as openDialog } from '@tauri-apps/plugin-dialog';
+import { open as openUrl } from '@tauri-apps/plugin-shell';
 import { autoDetectVlc } from '../api/torrent';
 import { Input, Button, Toggle, Select, PageHeader, ConfirmDialog } from '../components/ui';
 import { clearTmdbCache } from '../api/tmdb';
@@ -41,7 +42,7 @@ export function SettingsPage() {
   };
 
   const handleBrowseVlc = async () => {
-    const selected = await open({
+    const selected = await openDialog({
       directory: false,
       multiple: false,
     });
@@ -54,6 +55,7 @@ export function SettingsPage() {
   const { resetLibrary } = useLibrary();
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [cacheCleared, setCacheCleared] = useState(false);
+  const [vlcDetectDialog, setVlcDetectDialog] = useState(false);
 
   const handleClearCache = () => {
     clearTmdbCache();
@@ -75,7 +77,13 @@ export function SettingsPage() {
           <h2 className="text-sm font-bold uppercase tracking-widest text-zinc-400 mb-1">TMDB API Key</h2>
           <p className="text-xs text-zinc-600 mb-4">
             Used to fetch movie and TV metadata. Get your key at{' '}
-            <span className="text-zinc-500">themoviedb.org/settings/api</span>
+            <a
+              href="#"
+              onClick={(e) => { e.preventDefault(); openUrl('https://www.themoviedb.org/settings/api'); }}
+              className="text-zinc-500 hover:text-zinc-300 underline underline-offset-2 cursor-pointer"
+            >
+              themoviedb.org/settings/api
+            </a>
           </p>
           <Input
             type="password"
@@ -112,7 +120,7 @@ export function SettingsPage() {
                   size="md"
                   icon={FolderOpen}
                   onClick={async () => {
-                    const selected = await open({ directory: true, multiple: false });
+                    const selected = await openDialog({ directory: true, multiple: false });
                     if (selected && typeof selected === 'string') {
                       setSettings(s => ({ ...s, downloadPath: selected }));
                     }
@@ -145,7 +153,7 @@ export function SettingsPage() {
                     if (detected) {
                       setSettings(s => ({ ...s, vlcPath: detected }));
                     } else {
-                      await message('Could not auto-detect VLC path. Please enter it manually.', { title: 'VLC Detection Failed', kind: 'warning' });
+                      setVlcDetectDialog(true);
                     }
                   }}
                   className="whitespace-nowrap"
@@ -209,6 +217,25 @@ export function SettingsPage() {
                 />
               </div>
               <p className="text-[10px] text-zinc-500 mt-2">Set to 0 for unlimited speed.</p>
+            </div>
+
+            {/* Download Notifications */}
+            <div className="border-t border-zinc-800/60 pt-6 mt-6">
+              <label className="flex items-center justify-between cursor-pointer group">
+                <div className="flex items-center gap-3">
+                  <div className={`p-2 rounded-xl ${settings.notificationsEnabled ? 'bg-white/10' : 'bg-zinc-800'}`}>
+                    <HardDrive size={16} className={settings.notificationsEnabled ? "text-white" : "text-zinc-500"} />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-gray-200">Download notifications</p>
+                    <p className="text-xs text-zinc-500">Show a system notification when a download completes</p>
+                  </div>
+                </div>
+                <Toggle
+                  checked={settings.notificationsEnabled}
+                  onChange={(v) => setSettings((s) => ({ ...s, notificationsEnabled: v }))}
+                />
+              </label>
             </div>
           </div>
         </section>
@@ -387,6 +414,17 @@ export function SettingsPage() {
           message="This will permanently delete all your favorites and watched history. This action cannot be undone."
           confirmLabel="Reset Library"
           kind="danger"
+        />
+
+        <ConfirmDialog
+          isOpen={vlcDetectDialog}
+          onClose={() => setVlcDetectDialog(false)}
+          onConfirm={() => setVlcDetectDialog(false)}
+          title="VLC Detection Failed"
+          message="Could not auto-detect VLC path. Please enter it manually."
+          confirmLabel="OK"
+          kind="info"
+          hideCancel
         />
       </div>
     </div>

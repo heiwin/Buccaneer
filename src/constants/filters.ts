@@ -20,7 +20,7 @@ export const LANGUAGE_OPTIONS: SelectOption[] = [
 ];
 
 // Maps language code → torrent search suffix
-const LANGUAGE_SUFFIX: Record<string, string> = {
+export const LANGUAGE_SUFFIX: Record<string, string> = {
   it: 'ita',
   es: 'spa',
   fr: 'fre',

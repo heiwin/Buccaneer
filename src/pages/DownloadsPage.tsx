@@ -1,10 +1,24 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 
-import { HardDrive, Pause, Play, Trash2, X } from 'lucide-react';
-import { getActiveTorrents, pauseTorrent, resumeTorrent, removeTorrent, type TorrentInfo } from '../api/torrent';
+import { HardDrive, Pause, Play, Trash2, X, FolderOpen } from 'lucide-react';
+import { getActiveTorrents, pauseTorrent, resumeTorrent, removeTorrent, getTorrentDetails, streamWithVlc, findBestVideoFileIndex, autoDetectVlc, openInFileManager, type TorrentInfo } from '../api/torrent';
 import { formatBytes } from '../api/knaben';
+import { loadSettings } from '../api/settings';
 import { Button, Badge, ConfirmDialog, PageHeader, ErrorBanner } from '../components/ui';
 import { EmptyState } from '../components';
+import { sendNotification } from '@tauri-apps/plugin-notification';
+
+
+
+function formatEta(seconds: number): string {
+  if (seconds <= 0 || !isFinite(seconds)) return '—';
+  if (seconds < 60) return '<1m';
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${Math.floor(seconds % 60)}s`;
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  return `${h}h ${m}m`;
+}
 
 interface ConfirmState {
   isOpen: boolean;
@@ -13,6 +27,7 @@ interface ConfirmState {
 }
 
 export function DownloadsPage() {
+  const navigate = useNavigate();
 
   const [torrents, setTorrents] = useState<TorrentInfo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -22,12 +37,30 @@ export function DownloadsPage() {
     torrentId: '',
     deleteFiles: false,
   });
+  const [vlcDialog, setVlcDialog] = useState<'not-found' | 'launch-error' | null>(null);
+  const prevStatesRef = useRef<Map<string, string>>(new Map());
 
   useEffect(() => {
     const fetchTorrents = async () => {
-      if (document.hidden) return; // Skip when page is not visible
+      if (document.hidden) return;
       try {
         const data = await getActiveTorrents();
+        const prev = prevStatesRef.current;
+
+        for (const t of data) {
+          const prevState = prev.get(t.id);
+          if (prevState === 'downloading' && (t.state === 'seeding' || t.state === 'paused')) {
+            const settings = await loadSettings();
+            if (settings.notificationsEnabled) {
+              sendNotification({
+                title: 'Download Complete',
+                body: `${t.name} has finished downloading.`,
+              });
+            }
+          }
+        }
+
+        prevStatesRef.current = new Map(data.map((t) => [t.id, t.state]));
         setTorrents(data);
         setError(null);
       } catch (err: unknown) {
@@ -41,7 +74,7 @@ export function DownloadsPage() {
     const interval = window.setInterval(fetchTorrents, 2000);
 
     return () => window.clearInterval(interval);
-  }, []);
+  }, [navigate]);
 
   const handlePause = async (id: string) => {
     try {
@@ -73,34 +106,30 @@ export function DownloadsPage() {
 
   const handleStreamVlc = async (id: string) => {
     try {
+      const active = await getActiveTorrents();
+      for (const t of active) {
+        if (t.isStream) await pauseTorrent(t.id);
+      }
       const { loadSettings } = await import('../api/settings');
-      const { streamWithVlc, getTorrentDetails } = await import('../api/torrent');
       const settings = await loadSettings();
 
-      // Fetch torrent details to find the largest video file
       const data = await getTorrentDetails(id);
-      
-      let fileIdx = 0;
-      if (data.files && data.files.length > 0) {
-        // Find largest video file (mp4, mkv, avi)
-        let maxIdx = 0;
-        let maxSize = 0;
-        data.files.forEach((f, idx: number) => {
-          const name = f.name.toLowerCase();
-          if (name.endsWith('.mp4') || name.endsWith('.mkv') || name.endsWith('.avi')) {
-            if (f.length > maxSize) {
-              maxSize = f.length;
-              maxIdx = idx;
-            }
-          }
-        });
-        fileIdx = maxIdx;
-      }
+      const fileIdx = data.files && data.files.length > 0
+        ? findBestVideoFileIndex(data.files, data.name || '')
+        : 0;
 
       const streamUrl = `http://127.0.0.1:3030/torrents/${id}/stream/${fileIdx}`;
       await streamWithVlc(streamUrl, settings.vlcPath || null);
     } catch (e: unknown) {
       console.error(e instanceof Error ? e.message : String(e));
+      const { loadSettings } = await import('../api/settings');
+      const settings = await loadSettings();
+      const detected = await autoDetectVlc();
+      if (!detected && !settings.vlcPath) {
+        setVlcDialog('not-found');
+      } else {
+        setVlcDialog('launch-error');
+      }
     }
   };
 
@@ -173,9 +202,26 @@ export function DownloadsPage() {
                 style={{ width: `${Math.max(0, Math.min(100, t.progress * 100))}%` }} 
               />
             </div>
-            <div className="flex justify-between text-[10px] text-zinc-500 mt-2 font-mono">
-              <span>{(t.progress * 100).toFixed(1)}%</span>
-              <span>{t.savePath}</span>
+            <div className="flex items-center justify-between text-[10px] text-zinc-500 mt-2 font-mono">
+              <span className="flex items-center gap-2">
+                <span>{(t.progress * 100).toFixed(1)}%</span>
+                {t.totalBytes > 0 && (
+                  <span>{formatBytes(t.downloadedBytes)} / {formatBytes(t.totalBytes)}</span>
+                )}
+                {t.state === 'downloading' && t.downloadSpeed > 0 && t.totalBytes > 0 && (
+                  <span>
+                    ETA {formatEta((t.totalBytes - t.downloadedBytes) / t.downloadSpeed)}
+                  </span>
+                )}
+              </span>
+              <button
+                onClick={() => openInFileManager(t.savePath)}
+                className="flex items-center gap-1 hover:text-zinc-300 transition-colors cursor-pointer text-left"
+                title="Open in file manager"
+              >
+                <FolderOpen size={12} />
+                {t.savePath}
+              </button>
             </div>
           </div>
         ))}
@@ -194,6 +240,27 @@ export function DownloadsPage() {
         }
         confirmLabel={confirmState.deleteFiles ? 'Delete' : 'Cancel Download'}
         kind={confirmState.deleteFiles ? 'danger' : 'warning'}
+      />
+
+      <ConfirmDialog
+        isOpen={vlcDialog === 'not-found'}
+        onClose={() => setVlcDialog(null)}
+        onConfirm={() => navigate('/settings')}
+        title="VLC Not Found"
+        message="VLC not found on your system. Please install VLC or configure the path in Settings."
+        confirmLabel="Go to Settings"
+        kind="info"
+      />
+
+      <ConfirmDialog
+        isOpen={vlcDialog === 'launch-error'}
+        onClose={() => setVlcDialog(null)}
+        onConfirm={() => setVlcDialog(null)}
+        title="Launch Error"
+        message="Failed to launch VLC"
+        confirmLabel="OK"
+        kind="info"
+        hideCancel
       />
     </div>
   );
