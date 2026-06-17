@@ -67,18 +67,24 @@ jobs:
             ## Buccaneer ${{ github.ref_name }}
 
             ### Security & Stability
-            - **Eliminated VLC credential leak** — auth removed from librqbit HTTP API (localhost-only); VLC receives plain stream URLs
+            - **VLC auth fix** — re-embedded credentials in stream URL to fix VLC auth prompt loop
             - **Tightened Content-Security-Policy** — hardened security by removing unnecessary connect-src origin
             - **TMDB cache bounded** — 200-entry LRU eviction cap
             - **Streaming race condition fixed** — synchronous close prevents crashes on rapid start/stop
 
             ### Quality-of-Life
+            - **Notification bell** — bell icon on HomePage shows new episodes for favorited TV series; click navigates to the show
+            - **EZTV auto-routing** — episode searches from TV detail pages transparently use EZTV for accurate results, with automatic fallback to Knaben/APIBay
+            - **Source selector on DetailPage** — dropdown to switch search source (Knaben/APIBay/YTS/EZTV) directly from the torrent list
+            - **Episode-aware filtering** — season/episode pattern (s##e##) extracted from queries and applied across all search sources
+            - **Filters always visible** — quality/language/source filters remain visible even when no results are returned
             - **Accurate download speed** — fixed bytes/s conversion (was using wrong multiplier)
             - **Inline placeholder images** — external placehold.co replaced with SVG data URIs (works offline)
             - **ConfirmDialogs repositioned** — moved outside scrollable sections to prevent visual overlap
             - **Dynamic streaming region** — watch region loaded from settings instead of hardcoded `'IT'`
 
             ### Bug Fixes
+            - **EZTV full pagination** — all EZTV result pages now fetched (previously capped at 3 pages), covering the entire show catalog
             - **formatBytes overflow** — clamped to prevent display corruption on extreme values
             - **VLC `--meta-title` argument** — fixed single-arg format
             - **Deep link throttle** — 1s rate limit prevents rapid duplicate navigation
@@ -95,3 +101,4 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}

@@ -28,7 +28,8 @@
 
 ## Features
 
-- **Torrent Search** — Multi-tracker via Knaben (1337x, TPB, YTS, Nyaa.si) with apibay fallback.
+- **Torrent Search** — Multi-tracker via Knaben (1337x, TPB, YTS, Nyaa.si) with apibay fallback and dedicated YTS/EZTV sources.
+- **Notification Bell** — Bell icon on HomePage shows new episodes for favorited TV series; click navigates directly to the show.
 - **Stream & Download** — Stream in VLC or download with pause/resume and file selection.
 - **TMDB Integration** — Trending, details, cast, trailers, ratings; full Discover by genre/year/platform.
 - **TV Seasons & Episodes** — Episode browser, mark watched, quick-search across torrent sources.

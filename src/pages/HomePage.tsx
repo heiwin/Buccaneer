@@ -6,6 +6,10 @@ import type { TMDBListItem } from '../types/tmdb';
 import { Input, PageHeader, Spinner, ErrorBanner, Button } from '../components/ui';
 import { STREAMING_PROVIDERS } from '../constants/streaming';
 import { loadSettings } from '../api/settings';
+import { NotificationBell } from '../components/NotificationBell';
+import { checkNewEpisodes, getLastOpened, updateLastOpened } from '../api/notifications';
+import type { NewEpisode } from '../api/notifications';
+import { useLibrary } from '../lib/LibraryContext';
 
 interface ProviderSection {
   providerId: number;
@@ -23,6 +27,39 @@ export function HomePage() {
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [providerSections, setProviderSections] = useState<ProviderSection[]>([]);
+  const [newEpisodes, setNewEpisodes] = useState<NewEpisode[]>([]);
+  const [newEpisodeCount, setNewEpisodeCount] = useState(0);
+
+  const { favorites } = useLibrary();
+
+  useEffect(() => {
+    const tvFavorites = favorites.filter(f => f.mediaType === 'tv');
+    if (tvFavorites.length === 0) return;
+
+    let cancelled = false;
+
+    (async () => {
+      const lastOpened = await getLastOpened();
+      if (!lastOpened) {
+        await updateLastOpened();
+        return;
+      }
+
+      const episodes = await checkNewEpisodes(
+        tvFavorites.map(f => ({ id: f.id, title: f.title, posterPath: f.posterPath })),
+        lastOpened,
+      );
+
+      if (!cancelled) {
+        setNewEpisodes(episodes);
+        setNewEpisodeCount(episodes.length);
+      }
+
+      await updateLastOpened();
+    })();
+
+    return () => { cancelled = true; };
+  }, [favorites]);
 
   useEffect(() => {
     async function loadData() {
@@ -109,16 +146,19 @@ export function HomePage() {
   return (
     <div className="px-8 pt-8 pb-8">
       <PageHeader icon={Home} title={hasActiveSearch ? 'Search Results' : 'Home'} className="mb-12 justify-between">
-        <form onSubmit={handleSearch} className="w-64 hidden md:block">
-          <Input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search movies, tv series..."
-            icon={<Search size={15} />}
-            className="rounded-full"
-          />
-        </form>
+        <div className="flex items-center gap-2">
+          <form onSubmit={handleSearch} className="w-64 hidden md:block">
+            <Input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search movies, tv series..."
+              icon={<Search size={15} />}
+              className="rounded-full"
+            />
+          </form>
+          <NotificationBell episodes={newEpisodes} count={newEpisodeCount} loading={false} />
+        </div>
       </PageHeader>
 
       {error && !hasActiveSearch && <ErrorBanner error={error} className="mb-8" />}

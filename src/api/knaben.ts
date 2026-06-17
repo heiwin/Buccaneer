@@ -10,11 +10,13 @@ export async function searchTorrents(
   query: string,
   mediaType?: 'movie' | 'tv' | null,
   source?: string,
+  tvId?: number | null,
 ): Promise<KnabenResponse> {
   return await invoke('search_torrents', {
     query,
     mediaType: mediaType ?? null,
     source: source ?? 'knaben',
+    tvId: tvId ?? null,
   });
 }
 

@@ -47,6 +47,7 @@ export function DetailPage({ mediaType }: DetailPageProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [qualityFilter, setQualityFilter] = useState('');
   const [languageFilter, setLanguageFilter] = useState('');
+  const [source, setSource] = useState('knaben');
   
   const torrentSectionRef = useRef<HTMLDivElement>(null);
 
@@ -101,11 +102,12 @@ export function DetailPage({ mediaType }: DetailPageProps) {
     setTorrentsLoading(true);
     setTorrentsError(null);
     const finalQuery = buildSearchQuery(searchQuery, qualityFilter, languageFilter);
-    searchTorrents(finalQuery, mediaType)
+    const tvId = mediaType === 'tv' && id ? Number(id) : null;
+    searchTorrents(finalQuery, mediaType, source, tvId)
       .then((res) => setTorrents(res.hits || []))
       .catch((e: unknown) => setTorrentsError(e instanceof Error ? e.message : String(e)))
       .finally(() => setTorrentsLoading(false));
-  }, [searchQuery, qualityFilter, languageFilter, mediaType]);
+  }, [searchQuery, qualityFilter, languageFilter, mediaType, source]);
 
   // Helpers for TV searches
   const handleSearchSeason = () => {
@@ -113,6 +115,7 @@ export function DetailPage({ mediaType }: DetailPageProps) {
     const rawTitle = details.name.replace(/[:'-]/g, ' ').replace(/\s+/g, ' ').trim();
     const query = `${rawTitle} s${String(selectedSeason).padStart(2, '0')}`;
     setSearchQuery(query);
+    setSource('knaben');
     torrentSectionRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
@@ -121,6 +124,7 @@ export function DetailPage({ mediaType }: DetailPageProps) {
     const rawTitle = details.name.replace(/[:'-]/g, ' ').replace(/\s+/g, ' ').trim();
     const query = `${rawTitle} s${String(selectedSeason).padStart(2, '0')}e${String(episodeNumber).padStart(2, '0')}`;
     setSearchQuery(query);
+    setSource('eztv');
     torrentSectionRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
@@ -338,6 +342,8 @@ export function DetailPage({ mediaType }: DetailPageProps) {
             setQualityFilter={setQualityFilter}
             languageFilter={languageFilter}
             setLanguageFilter={setLanguageFilter}
+            source={source}
+            setSource={setSource}
           />
         </div>
 

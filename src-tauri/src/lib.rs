@@ -193,6 +193,44 @@ async fn search_tmdb(query: String, tmdb_state: tauri::State<'_, TmdbState>, htt
 
 // ─── Knaben Torrent Command ───────────────────────────────────────────────────
 
+fn extract_episode_pattern(query: &str) -> Option<String> {
+    let lower = query.to_lowercase();
+    let chars: Vec<char> = lower.chars().collect();
+    // s##e## pattern first
+    for i in 0..chars.len().saturating_sub(5) {
+        if chars[i] == 's'
+            && chars[i + 1].is_ascii_digit()
+            && chars[i + 2].is_ascii_digit()
+            && chars[i + 3] == 'e'
+            && chars[i + 4].is_ascii_digit()
+            && chars[i + 5].is_ascii_digit()
+        {
+            return Some(chars[i..i + 6].iter().collect());
+        }
+    }
+    // s## pattern (season-only)
+    for i in 0..chars.len().saturating_sub(2) {
+        if chars[i] == 's'
+            && chars[i + 1].is_ascii_digit()
+            && chars[i + 2].is_ascii_digit()
+            && (i + 3 >= chars.len() || !chars[i + 3].is_ascii_digit())
+        {
+            return Some(chars[i..i + 3].iter().collect());
+        }
+    }
+    None
+}
+
+fn filter_by_episode_pattern(hits: &mut Vec<Value>, pattern: &str) {
+    let pat_lower = pattern.to_lowercase();
+    hits.retain(|hit| {
+        hit.get("title")
+            .and_then(|t| t.as_str())
+            .map(|t| t.to_lowercase().contains(&pat_lower))
+            .unwrap_or(false)
+    });
+}
+
 fn is_cam_or_telesync(title: &str) -> bool {
     let lower = title.to_lowercase();
     let keywords = [
@@ -208,15 +246,51 @@ fn is_cam_or_telesync(title: &str) -> bool {
 }
 
 #[tauri::command]
-async fn search_torrents(query: String, media_type: Option<String>, source: Option<String>, tmdb_state: tauri::State<'_, TmdbState>, http_state: tauri::State<'_, HttpState>) -> Result<Value, String> {
+async fn search_torrents(query: String, media_type: Option<String>, source: Option<String>, tv_id: Option<u64>, tmdb_state: tauri::State<'_, TmdbState>, http_state: tauri::State<'_, HttpState>) -> Result<Value, String> {
     let api_key = tmdb_key!(tmdb_state);
+    let episode_pattern = extract_episode_pattern(&query);
 
     match source.as_deref().unwrap_or("knaben") {
-        "apibay" => search_apibay(&http_state.client, &query).await,
+        "apibay" => {
+            let mut res = search_apibay(&http_state.client, &query).await?;
+            if let Some(ref pat) = episode_pattern {
+                if let Some(hits) = res.get_mut("hits").and_then(|h| h.as_array_mut()) {
+                    filter_by_episode_pattern(hits, pat);
+                }
+            }
+            Ok(res)
+        }
         "yts" => search_yts(&http_state.client, &query).await,
-        "eztv" => search_eztv(&http_state.client, &query, &api_key).await,
+        "eztv" => {
+            let mut res = if let Some(tv) = tv_id {
+                search_eztv_by_id(&http_state.client, tv, &api_key).await?
+            } else {
+                search_eztv(&http_state.client, &query, &api_key).await?
+            };
+            if let Some(ref pat) = episode_pattern {
+                if let Some(hits) = res.get_mut("hits").and_then(|h| h.as_array_mut()) {
+                    filter_by_episode_pattern(hits, pat);
+                }
+            }
+            Ok(res)
+        }
         _ => {
-            // knaben: try knaben first, fallback to apibay
+            // knaben: route episode-specific queries to EZTV when we have tv_id, fallback to knaben/apibay
+            if let Some(ref pat) = episode_pattern {
+                if pat.contains('e') {
+                    if let Some(tv) = tv_id {
+                        if let Ok(mut eztv_res) = search_eztv_by_id(&http_state.client, tv, &api_key).await {
+                            if let Some(hits) = eztv_res.get_mut("hits").and_then(|h| h.as_array_mut()) {
+                                filter_by_episode_pattern(hits, pat);
+                            }
+                            if !eztv_res["hits"].as_array().map_or(true, |h| h.is_empty()) {
+                                return Ok(eztv_res);
+                            }
+                        }
+                    }
+                }
+            }
+
             match search_knaben(&http_state.client, &query, &media_type).await {
                 Ok(mut json) => {
                     if let Some(hits) = json.get_mut("hits").and_then(|h| h.as_array_mut()) {
@@ -232,13 +306,30 @@ async fn search_torrents(query: String, media_type: Option<String>, source: Opti
                                 .map(|t| !is_cam_or_telesync(t))
                                 .unwrap_or(true)
                         });
+                        if let Some(ref pat) = episode_pattern {
+                            filter_by_episode_pattern(hits, pat);
+                        }
                         if !hits.is_empty() {
                             return Ok(json);
                         }
                     }
-                    search_apibay(&http_state.client, &query).await
+                    let mut apibay_res = search_apibay(&http_state.client, &query).await?;
+                    if let Some(ref pat) = episode_pattern {
+                        if let Some(hits) = apibay_res.get_mut("hits").and_then(|h| h.as_array_mut()) {
+                            filter_by_episode_pattern(hits, pat);
+                        }
+                    }
+                    Ok(apibay_res)
                 }
-                Err(_) => search_apibay(&http_state.client, &query).await,
+                Err(_) => {
+                    let mut apibay_res = search_apibay(&http_state.client, &query).await?;
+                    if let Some(ref pat) = episode_pattern {
+                        if let Some(hits) = apibay_res.get_mut("hits").and_then(|h| h.as_array_mut()) {
+                            filter_by_episode_pattern(hits, pat);
+                        }
+                    }
+                    Ok(apibay_res)
+                }
             }
         }
     }
@@ -440,59 +531,29 @@ async fn search_yts(client: &Client, query: &str) -> Result<Value, String> {
     }))
 }
 
-async fn search_eztv(client: &Client, query: &str, api_key: &str) -> Result<Value, String> {
-    // 1. Search TMDB for TV shows matching the query
-    let tmdb_url = reqwest::Url::parse_with_params(
-        "https://api.themoviedb.org/3/search/multi",
-        &[("api_key", api_key), ("query", query)],
-    )
-    .map_err(|e| format!("tmdb URL error: {}", e))?;
-
-    let res = client
-        .get(tmdb_url)
-        .send()
-        .await
-        .map_err(|e| format!("tmdb error: {}", e))?;
-    let tmdb_json: Value = res.json().await.map_err(|e| format!("tmdb parse: {}", e))?;
-
-    let tv_result = tmdb_json["results"]
-        .as_array()
-        .and_then(|r| r.iter().find(|item| item["media_type"] == "tv"))
-        .ok_or_else(|| "No TV series found for this query".to_string())?;
-
-    let tv_id = tv_result["id"]
-        .as_u64()
-        .ok_or_else(|| "Invalid TV ID".to_string())?;
-
-    // 2. Get IMDB ID from TMDB
-    let details_url = format!(
+async fn get_imdb_id_from_tv_id(client: &Client, tv_id: u64, api_key: &str) -> Result<String, String> {
+    let url = format!(
         "https://api.themoviedb.org/3/tv/{}?api_key={}&append_to_response=external_ids",
         tv_id, api_key
     );
-    let details_res = client
-        .get(&details_url)
-        .send()
-        .await
-        .map_err(|e| format!("tmdb details error: {}", e))?;
-    let details: Value = details_res
-        .json()
-        .await
-        .map_err(|e| format!("tmdb details parse: {}", e))?;
-
+    let res = client.get(&url).send().await.map_err(|e| format!("tmdb error: {}", e))?;
+    let details: Value = res.json().await.map_err(|e| format!("tmdb parse: {}", e))?;
     let imdb_id = details["external_ids"]["imdb_id"]
         .as_str()
         .unwrap_or("")
         .trim_start_matches("tt")
         .to_string();
-
     if imdb_id.is_empty() {
-        return Err("No IMDB ID found for this TV series".to_string());
+        Err("No IMDB ID found for this TV series".to_string())
+    } else {
+        Ok(imdb_id)
     }
+}
 
-    // 3. Call EZTV API with the IMDB ID
+async fn call_eztv_api(client: &Client, imdb_id: &str, page: u32) -> Result<Value, String> {
     let eztv_url = reqwest::Url::parse_with_params(
         "https://eztvx.to/api/get-torrents",
-        &[("imdb_id", imdb_id.as_str()), ("limit", "50")],
+        &[("imdb_id", imdb_id), ("limit", "100"), ("page", &page.to_string())],
     )
     .map_err(|e| format!("eztv URL error: {}", e))?;
 
@@ -508,7 +569,7 @@ async fn search_eztv(client: &Client, query: &str, api_key: &str) -> Result<Valu
 
     let torrents = eztv_json["torrents"].as_array().cloned().unwrap_or_default();
 
-    let mut hits: Vec<Value> = torrents
+    let hits: Vec<Value> = torrents
         .iter()
         .map(|t| {
             let hash = t["hash"].as_str().unwrap_or("").to_string();
@@ -540,17 +601,66 @@ async fn search_eztv(client: &Client, query: &str, api_key: &str) -> Result<Valu
         })
         .collect();
 
-    hits.retain(|item| {
+    Ok(serde_json::Value::Array(hits))
+}
+
+async fn search_eztv_by_id(client: &Client, tv_id: u64, api_key: &str) -> Result<Value, String> {
+    let imdb_id = get_imdb_id_from_tv_id(client, tv_id, api_key).await?;
+
+    // Collect hits across all pages (API returns <100 items on the last page)
+    let mut all_hits: Vec<Value> = Vec::new();
+    let mut page = 1u32;
+    loop {
+        let raw = call_eztv_api(client, &imdb_id, page).await?;
+        if let Some(arr) = raw.as_array() {
+            all_hits.extend(arr.iter().cloned());
+            if arr.len() < 100 {
+                break; // last page
+            }
+        } else {
+            break;
+        }
+        page += 1;
+    }
+
+    all_hits.retain(|item| {
         item["title"].as_str().map(|t| !is_cam_or_telesync(t)).unwrap_or(true)
     });
 
-    let count = eztv_json["torrents_count"].as_u64().unwrap_or(0);
+    let count = all_hits.len();
 
     Ok(json!({
         "total": { "value": count, "relation": "eq" },
         "max_score": null,
-        "hits": hits
+        "hits": all_hits
     }))
+}
+
+async fn search_eztv(client: &Client, query: &str, api_key: &str) -> Result<Value, String> {
+    // 1. Search TMDB for TV show matching the query
+    let tmdb_url = reqwest::Url::parse_with_params(
+        "https://api.themoviedb.org/3/search/multi",
+        &[("api_key", api_key), ("query", query)],
+    )
+    .map_err(|e| format!("tmdb URL error: {}", e))?;
+
+    let res = client
+        .get(tmdb_url)
+        .send()
+        .await
+        .map_err(|e| format!("tmdb error: {}", e))?;
+    let tmdb_json: Value = res.json().await.map_err(|e| format!("tmdb parse: {}", e))?;
+
+    let tv_result = tmdb_json["results"]
+        .as_array()
+        .and_then(|r| r.iter().find(|item| item["media_type"] == "tv"))
+        .ok_or_else(|| "No TV series found for this query".to_string())?;
+
+    let tv_id = tv_result["id"]
+        .as_u64()
+        .ok_or_else(|| "Invalid TV ID".to_string())?;
+
+    search_eztv_by_id(client, tv_id, api_key).await
 }
 
 

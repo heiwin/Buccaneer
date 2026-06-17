@@ -1,11 +1,17 @@
 import React, { useState, useMemo } from 'react';
 import { Magnet, Loader2 } from 'lucide-react';
 import type { TorrentResult } from '../types/knaben';
-import { ALLOWED_TRACKERS } from '../types/knaben';
 import { TorrentActionMenu } from './TorrentActionMenu';
 import { TorrentRow } from './TorrentRow';
 import { Select, ErrorBanner } from './ui';
 import { QUALITY_OPTIONS, LANGUAGE_OPTIONS, LANGUAGE_SUFFIX } from '../constants/filters';
+
+const SOURCE_OPTIONS = [
+  { value: 'knaben', label: 'Knaben' },
+  { value: 'apibay', label: 'APIBay' },
+  { value: 'yts', label: 'YTS (Movies only)' },
+  { value: 'eztv', label: 'EZTV (TV series only)' },
+];
 
 interface TorrentListProps {
   results: TorrentResult[];
@@ -15,24 +21,25 @@ interface TorrentListProps {
   setQualityFilter: (v: string) => void;
   languageFilter: string;
   setLanguageFilter: (v: string) => void;
+  source: string;
+  setSource: (v: string) => void;
 }
 
-export const TorrentList: React.FC<TorrentListProps> = ({ 
-  results, 
-  loading, 
+export const TorrentList: React.FC<TorrentListProps> = ({
+  results,
+  loading,
   error,
   qualityFilter,
   setQualityFilter,
   languageFilter,
-  setLanguageFilter
+  setLanguageFilter,
+  source,
+  setSource,
 }) => {
   const [selectedTorrent, setSelectedTorrent] = useState<TorrentResult | null>(null);
-  const [providerFilter, setProviderFilter] = useState('All');
 
   const filteredResults = useMemo(() => results.filter(t => {
     const title = t.title.toLowerCase();
-
-    if (providerFilter !== 'All' && t.tracker !== providerFilter) return false;
 
     if (qualityFilter) {
       const q = qualityFilter.toLowerCase();
@@ -46,7 +53,7 @@ export const TorrentList: React.FC<TorrentListProps> = ({
     }
 
     return true;
-  }), [results, providerFilter, qualityFilter, languageFilter]);
+  }), [results, qualityFilter, languageFilter]);
 
 
 
@@ -72,15 +79,8 @@ export const TorrentList: React.FC<TorrentListProps> = ({
       {/* Error */}
       {!loading && error && <ErrorBanner error={error} withIcon />}
 
-      {/* Empty (no API results) */}
-      {!loading && !error && results.length === 0 && (
-        <div className="py-14 text-center text-zinc-600 text-sm">
-          No torrents found for this title.
-        </div>
-      )}
-
       {/* Filters */}
-      {!loading && !error && results.length > 0 && (
+      {!loading && !error && (
         <div className="flex flex-wrap gap-4 mb-4">
           <Select
             label="Quality"
@@ -99,16 +99,20 @@ export const TorrentList: React.FC<TorrentListProps> = ({
             className="w-40"
           />
           <Select
-            label="Provider"
-            options={[
-              { value: 'All', label: 'All' },
-              ...ALLOWED_TRACKERS.map(t => ({ value: t, label: t }))
-            ]}
-            value={providerFilter}
-            onChange={(e) => setProviderFilter(e.target.value as string)}
+            label="Source"
+            options={SOURCE_OPTIONS}
+            value={source}
+            onChange={(e) => setSource(e.target.value as string)}
             size="sm"
             className="w-48"
           />
+        </div>
+      )}
+
+      {/* Empty (no API results) */}
+      {!loading && !error && results.length === 0 && (
+        <div className="py-14 text-center text-zinc-600 text-sm">
+          No torrents found for this title.
         </div>
       )}
 
@@ -123,13 +127,13 @@ export const TorrentList: React.FC<TorrentListProps> = ({
       {!loading && !error && filteredResults.length > 0 && (
         <div className="space-y-2 max-h-[360px] overflow-y-auto pr-2 custom-scrollbar">
           {filteredResults.map((t) => (
-            <TorrentRow 
-              key={t.id} 
-              torrent={t} 
+            <TorrentRow
+              key={t.id}
+              torrent={t}
               onSelect={(torrent, onlyFiles) => {
                 const updatedTorrent = { ...torrent, onlyFiles };
                 setSelectedTorrent(updatedTorrent);
-              }} 
+              }}
             />
           ))}
         </div>
