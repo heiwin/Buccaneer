@@ -275,22 +275,6 @@ async fn search_torrents(query: String, media_type: Option<String>, source: Opti
             Ok(res)
         }
         _ => {
-            // knaben: route episode-specific queries to EZTV when we have tv_id, fallback to knaben/apibay
-            if let Some(ref pat) = episode_pattern {
-                if pat.contains('e') {
-                    if let Some(tv) = tv_id {
-                        if let Ok(mut eztv_res) = search_eztv_by_id(&http_state.client, tv, &api_key).await {
-                            if let Some(hits) = eztv_res.get_mut("hits").and_then(|h| h.as_array_mut()) {
-                                filter_by_episode_pattern(hits, pat);
-                            }
-                            if !eztv_res["hits"].as_array().map_or(true, |h| h.is_empty()) {
-                                return Ok(eztv_res);
-                            }
-                        }
-                    }
-                }
-            }
-
             match search_knaben(&http_state.client, &query, &media_type).await {
                 Ok(mut json) => {
                     if let Some(hits) = json.get_mut("hits").and_then(|h| h.as_array_mut()) {
