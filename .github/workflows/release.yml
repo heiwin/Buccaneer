@@ -62,7 +62,7 @@ jobs:
       - uses: tauri-apps/tauri-action@1ddc7b49b13c3038297360482fcb3e058764d7c9 # v0.6.2
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: Buccaneer ${{ github.ref_name }}
+          releaseName: "0.9.5"
           releaseBody: |
             ## Buccaneer ${{ github.ref_name }}
 

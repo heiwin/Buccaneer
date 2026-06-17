@@ -7,7 +7,7 @@ let storeInstance: Store | null = null;
 
 async function getStore(): Promise<Store> {
   if (!storeInstance) {
-    storeInstance = await load(NOTIFICATIONS_FILE, { autoSave: false });
+    storeInstance = await load(NOTIFICATIONS_FILE, { autoSave: false, defaults: {} });
   }
   return storeInstance;
 }
