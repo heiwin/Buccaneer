@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { HardDrive, Pause, Play, Trash2, X, FolderOpen } from 'lucide-react';
-import { getActiveTorrents, pauseTorrent, resumeTorrent, removeTorrent, getTorrentDetails, streamWithVlc, findBestVideoFileIndex, autoDetectVlc, openInFileManager, type TorrentInfo } from '../api/torrent';
+import { getActiveTorrents, pauseTorrent, resumeTorrent, removeTorrent, getTorrentDetails, streamWithVlc, findBestVideoFileIndex, autoDetectVlc, openInFileManager, getApiPort, type TorrentInfo } from '../api/torrent';
 import { formatBytes } from '../api/knaben';
 import { loadSettings } from '../api/settings';
 import { Button, Badge, ConfirmDialog, PageHeader, ErrorBanner } from '../components/ui';
@@ -42,14 +42,13 @@ export function DownloadsPage() {
 
   useEffect(() => {
     const fetchTorrents = async () => {
-      if (document.hidden) return;
       try {
         const data = await getActiveTorrents();
         const prev = prevStatesRef.current;
 
         for (const t of data) {
           const prevState = prev.get(t.id);
-          if (prevState === 'downloading' && (t.state === 'seeding' || t.state === 'paused')) {
+          if (prevState === 'downloading' && t.state === 'seeding') {
             const settings = await loadSettings();
             if (settings.notificationsEnabled) {
               sendNotification({
@@ -110,7 +109,6 @@ export function DownloadsPage() {
       for (const t of active) {
         if (t.isStream) await pauseTorrent(t.id);
       }
-      const { loadSettings } = await import('../api/settings');
       const settings = await loadSettings();
 
       const data = await getTorrentDetails(id);
@@ -118,11 +116,11 @@ export function DownloadsPage() {
         ? findBestVideoFileIndex(data.files, data.name || '')
         : 0;
 
-      const streamUrl = `http://127.0.0.1:3030/torrents/${id}/stream/${fileIdx}`;
+      const { port, userpass } = await getApiPort();
+      const streamUrl = `http://${userpass}@127.0.0.1:${port}/torrents/${id}/stream/${fileIdx}`;
       await streamWithVlc(streamUrl, settings.vlcPath || null);
     } catch (e: unknown) {
       console.error(e instanceof Error ? e.message : String(e));
-      const { loadSettings } = await import('../api/settings');
       const settings = await loadSettings();
       const detected = await autoDetectVlc();
       if (!detected && !settings.vlcPath) {

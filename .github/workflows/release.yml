@@ -66,25 +66,23 @@ jobs:
           releaseBody: |
             ## Buccaneer ${{ github.ref_name }}
 
-            ### New Features
-            - **GitHub version checker** — sidebar banner shows when an update is available
-            - **Smart stream management** — starting a new stream auto-pauses active stream torrents
-            - **Download notifications** — OS notification when a download completes (toggle in Settings)
-            - **Download Manager enhancements** — file size, download progress, ETA displayed per torrent
-            - **Open in file manager** — clickable save path opens the folder
+            ### Security & Stability
+            - **Eliminated VLC credential leak** — auth removed from librqbit HTTP API (localhost-only); VLC receives plain stream URLs
+            - **Tightened Content-Security-Policy** — hardened security by removing unnecessary connect-src origin
+            - **TMDB cache bounded** — 200-entry LRU eviction cap
+            - **Streaming race condition fixed** — synchronous close prevents crashes on rapid start/stop
 
             ### Quality-of-Life
-            - **CAM/Telesync filter** — low-quality releases removed from all search sources (Knaben, Apibay, YTS, EZTV)
-            - **Cast carousel arrows** — scrollable cast list on detail pages
-            - **Auto-navigate to Downloads** when streaming starts
-            - **Quality/language filters** now functional in torrent list
-            - **TMDB API link** in Settings opens correctly
+            - **Accurate download speed** — fixed bytes/s conversion (was using wrong multiplier)
+            - **Inline placeholder images** — external placehold.co replaced with SVG data URIs (works offline)
+            - **ConfirmDialogs repositioned** — moved outside scrollable sections to prevent visual overlap
+            - **Dynamic streaming region** — watch region loaded from settings instead of hardcoded `'IT'`
 
             ### Bug Fixes
-            - **VLC picks wrong file** — title-scoring algorithm selects the best video file
-            - **Windows VLC path** — registry + `where` fallback for auto-detection
-            - **VLC config dialog** — shows "Go to Settings" when VLC is not found
-            - **ConfirmDialog crash** — missing `hideCancel` prop destructure fixed
+            - **formatBytes overflow** — clamped to prevent display corruption on extreme values
+            - **VLC `--meta-title` argument** — fixed single-arg format
+            - **Deep link throttle** — 1s rate limit prevents rapid duplicate navigation
+            - Various minor fixes (StrictMode init, provider ID constants, modal overflow toggle, debounce cleanup, redundant imports, state catch-all, bounds validation)
 
             Download the appropriate asset for your platform:
             - **macOS (Intel)**: `.dmg` (x86_64)
@@ -96,3 +94,4 @@ jobs:
           args: ${{ matrix.args }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}

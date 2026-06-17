@@ -1,6 +1,6 @@
 [package]
 name = "buccaneer"
-version = "0.9.4"
+version = "0.9.5"
 description = "Buccaneer - Torrent streaming desktop app"
 authors = ["Buccaneer Team"]
 license = "MIT"
@@ -34,5 +34,6 @@ tauri-plugin-deep-link = "2"
 chrono = "0.4"
 urlencoding = "2"
 base64 = "0.22"
-semver = "1.0"
 tauri-plugin-notification = "2"
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"

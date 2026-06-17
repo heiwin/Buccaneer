@@ -68,7 +68,6 @@ pub async fn auto_detect_vlc() -> Result<Option<String>, String> {
             "/usr/bin/vlc",
             "/snap/bin/vlc",
             "/usr/local/bin/vlc",
-            "/usr/bin/vlc",
         ];
         for p in known_paths {
             if std::path::Path::new(p).exists() {
@@ -94,7 +93,6 @@ pub async fn stream_with_vlc(
     stream_url: String,
     vlc_path: Option<String>,
     title: Option<String>,
-    state: tauri::State<'_, crate::torrent::TorrentState>,
 ) -> Result<(), String> {
     let executable = vlc_path.unwrap_or_else(|| "vlc".to_string());
 
@@ -141,25 +139,17 @@ pub async fn stream_with_vlc(
         return Err("Stream URL must use HTTP scheme".to_string());
     }
 
-    // Sanitize title: reject values starting with '--' to prevent argument injection
-    if let Some(t) = &title {
-        if t.starts_with("--") || (t.starts_with('-') && t.len() > 1) {
-            return Err("Invalid title: cannot start with argument prefix".to_string());
-        }
-    }
-
-    // Embed credentials in the stream URL so VLC can authenticate with the local API
-    let authenticated_url = stream_url.replacen("http://", &format!("http://{}@", state.api_credentials_url), 1);
-
     let mut cmd = std::process::Command::new(&executable);
     cmd.arg("--network-caching=10000");
     if let Some(t) = &title {
-        cmd.arg("--meta-title");
-        cmd.arg(t);
+        let sanitized: String = t.chars()
+            .filter(|c| c.is_alphanumeric() || c.is_ascii_punctuation() || c.is_whitespace())
+            .collect();
+        cmd.arg(format!("--meta-title={}", sanitized));
     }
     // Use "--" to separate options from positional arguments
     cmd.arg("--");
-    cmd.arg(&authenticated_url);
+    cmd.arg(&stream_url);
 
     cmd.spawn()
         .map_err(|e| format!("Failed to launch VLC at '{}': {}", executable, e))?;

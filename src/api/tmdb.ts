@@ -8,6 +8,16 @@ interface CacheEntry<T> {
 
 const cache = new Map<string, CacheEntry<unknown>>();
 const CACHE_DURATION = 10 * 60 * 1000; // 10 minutes
+const MAX_CACHE_SIZE = 200;
+
+function evictExpired(): void {
+  const now = Date.now();
+  for (const [key, entry] of cache) {
+    if (now - entry.timestamp >= CACHE_DURATION) {
+      cache.delete(key);
+    }
+  }
+}
 
 export function clearTmdbCache(): void {
   cache.clear();
@@ -20,6 +30,11 @@ async function cachedInvoke<T>(cmd: string, args?: Record<string, unknown>): Pro
   const cached = cache.get(key);
   if (cached && now - cached.timestamp < CACHE_DURATION) {
     return cached.data as T;
+  }
+
+  // Evict stale entries if cache is getting large
+  if (cache.size >= MAX_CACHE_SIZE) {
+    evictExpired();
   }
 
   const data = await invoke<T>(cmd, args);
@@ -93,20 +108,25 @@ export async function searchTMDB(query: string): Promise<TMDBResponse<TMDBListIt
 
 export const TMDB_IMAGE_BASE = 'https://image.tmdb.org/t/p';
 
+function svgPlaceholder(width: number, height: number, text: string): string {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+    <rect width="${width}" height="${height}" fill="#1a1a2e"/>
+    <text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="#6b7280" font-family="system-ui,sans-serif" font-size="${Math.min(width, height) * 0.06}">${text}</text>
+  </svg>`;
+  return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+}
+
+export const PLACEHOLDER_POSTER = svgPlaceholder(500, 750, 'No Image');
+export const PLACEHOLDER_PROFILE = svgPlaceholder(185, 278, 'N/A');
+
 export function posterUrl(path: string | null, size: 'w300' | 'w500' | 'original' = 'w500'): string {
-  return path
-    ? `${TMDB_IMAGE_BASE}/${size}${path}`
-    : 'https://placehold.co/500x750/1a1a2e/6b7280?text=No+Image';
+  return path ? `${TMDB_IMAGE_BASE}/${size}${path}` : PLACEHOLDER_POSTER;
 }
 
 export function backdropUrl(path: string | null, size: 'w780' | 'w1280' | 'original' = 'w1280'): string {
-  return path
-    ? `${TMDB_IMAGE_BASE}/${size}${path}`
-    : '';
+  return path ? `${TMDB_IMAGE_BASE}/${size}${path}` : '';
 }
 
 export function profileUrl(path: string | null): string {
-  return path
-    ? `${TMDB_IMAGE_BASE}/w185${path}`
-    : `https://placehold.co/185x278/1a1a2e/6b7280?text=N%2FA`;
+  return path ? `${TMDB_IMAGE_BASE}/w185${path}` : PLACEHOLDER_PROFILE;
 }

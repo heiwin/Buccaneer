@@ -74,11 +74,14 @@ export async function getActiveTorrents(): Promise<TorrentInfo[]> {
     const total = stats.total_bytes || 1;
     const progress = stats.progress_bytes ? (stats.progress_bytes / total) : 0;
     
+    const VALID_STATES = new Set(['downloading', 'seeding', 'paused', 'error', 'checking']);
     let stateStr = (stats.state || 'error').toLowerCase();
     if (stateStr === 'live') {
       stateStr = stats.finished ? 'seeding' : 'downloading';
     } else if (stateStr === 'initializing') {
       stateStr = 'checking';
+    } else if (!VALID_STATES.has(stateStr)) {
+      stateStr = 'error';
     }
     
     return {
@@ -87,8 +90,8 @@ export async function getActiveTorrents(): Promise<TorrentInfo[]> {
       progress: progress,
       totalBytes: stats.total_bytes || 0,
       downloadedBytes: stats.progress_bytes || 0,
-      downloadSpeed: live.download_speed?.mbps ? live.download_speed.mbps * 1024 * 1024 / 8 : 0, 
-      uploadSpeed: live.upload_speed?.mbps ? live.upload_speed.mbps * 1024 * 1024 / 8 : 0,
+      downloadSpeed: live.download_speed?.mbps ? live.download_speed.mbps * 1024 * 1024 : 0,
+      uploadSpeed: live.upload_speed?.mbps ? live.upload_speed.mbps * 1024 * 1024 : 0,
       seeds: peerStats.live || 0,
       peers: peerStats.live || 0,
       state: stateStr as TorrentInfo['state'],
@@ -179,4 +182,13 @@ export function findBestVideoFileIndex(
 
 export async function getTorrentMetadata(magnetOrUrl: string): Promise<FileNode[]> {
   return await invoke('get_torrent_metadata', { magnetOrUrl });
+}
+
+let apiConnection: { port: number; userpass: string } | null = null;
+
+export async function getApiPort(): Promise<{ port: number; userpass: string }> {
+  if (apiConnection === null) {
+    apiConnection = await invoke<{ port: number; userpass: string }>('get_api_port');
+  }
+  return apiConnection;
 }

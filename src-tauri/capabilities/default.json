@@ -30,6 +30,8 @@
     "store:allow-get",
     "store:allow-save",
     "dialog:default",
-    "notification:default"
+    "notification:default",
+    "updater:default",
+    "process:default"
   ]
 }

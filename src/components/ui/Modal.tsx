@@ -43,14 +43,13 @@ export const Modal: React.FC<ModalProps> = ({
 
   // Prevent scrolling when modal is open
   useEffect(() => {
+    const body = document.body;
     if (isOpen) {
-      document.body.style.overflow = 'hidden';
+      body.classList.add('overflow-hidden');
     } else {
-      document.body.style.overflow = 'unset';
+      body.classList.remove('overflow-hidden');
     }
-    return () => {
-      document.body.style.overflow = 'unset';
-    };
+    return () => body.classList.remove('overflow-hidden');
   }, [isOpen]);
 
   const handleKeyDown = useCallback((e: KeyboardEvent) => {

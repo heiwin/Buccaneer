@@ -1,13 +1,17 @@
-import { invoke } from '@tauri-apps/api/core';
+import { check } from '@tauri-apps/plugin-updater';
+import type { Update } from '@tauri-apps/plugin-updater';
 
-export interface UpdateInfo {
-  available: boolean;
-  latestVersion: string;
-  downloadUrl: string;
-  currentVersion: string;
-  error?: string;
-}
+export type UpdateState =
+  | { status: 'idle' }
+  | { status: 'checking' }
+  | { status: 'available'; update: Update }
+  | { status: 'downloading'; progress: number; total: number }
+  | { status: 'downloaded'; update: Update }
+  | { status: 'installing' }
+  | { status: 'error'; message: string };
 
-export async function checkForUpdate(): Promise<UpdateInfo> {
-  return await invoke('check_update');
+export type { Update } from '@tauri-apps/plugin-updater';
+
+export async function checkForUpdate(): Promise<Update | null> {
+  return check();
 }

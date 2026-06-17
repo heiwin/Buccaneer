@@ -4,6 +4,7 @@ use tauri::Manager;
 use std::sync::Mutex;
 
 use base64::Engine;
+use tauri_plugin_dialog::DialogExt;
 
 const DEFAULT_TMDB_API_KEY: &str = "90d235c4803793948cf3cd65a6867565";
 
@@ -198,7 +199,12 @@ fn is_cam_or_telesync(title: &str) -> bool {
         "camrip", "telesync", "hdts", "workprint",
         "dvdscr", "dvd-screener", "telecine", "hdtc",
     ];
-    keywords.iter().any(|&kw| lower.contains(kw))
+    if keywords.iter().any(|&kw| lower.contains(kw)) {
+        return true;
+    }
+    lower.contains(".cam.") || lower.contains(" cam ")
+        || lower.contains("-cam-") || lower.contains("_cam_")
+        || lower.starts_with("cam.") || lower.ends_with(".cam")
 }
 
 #[tauri::command]
@@ -553,51 +559,16 @@ pub mod vlc;
 
 // ─── App Entry Point ─────────────────────────────────────────────────────────
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
-#[tauri::command]
-async fn check_update() -> Result<serde_json::Value, String> {
-    let client = reqwest::Client::builder()
-        .user_agent("Buccaneer")
-        .build()
-        .map_err(|e| e.to_string())?;
-
-    let resp = client
-        .get("https://api.github.com/repos/heiwin/Buccaneer/releases/latest")
-        .send()
-        .await
-        .map_err(|e| format!("Failed to check for updates: {}", e))?;
-
-    if !resp.status().is_success() {
-        return Ok(serde_json::json!({ "available": false, "error": "GitHub API rate limited" }));
-    }
-
-    let json: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
-
-    let latest_tag = json["tag_name"]
-        .as_str()
-        .unwrap_or("v0.0.0")
-        .trim_start_matches('v');
-
-    let current = env!("CARGO_PKG_VERSION");
-    let available = if let (Ok(latest), Ok(cur)) = (
-        semver::Version::parse(latest_tag),
-        semver::Version::parse(current),
-    ) {
-        latest > cur
-    } else {
-        latest_tag != current
-    };
-
-    Ok(serde_json::json!({
-        "available": available,
-        "latestVersion": json["tag_name"].as_str().unwrap_or("unknown"),
-        "downloadUrl": "https://github.com/heiwin/Buccaneer/releases/latest",
-        "currentVersion": current,
-    }))
-}
-
 #[tauri::command]
 fn open_in_file_manager(path: String) -> Result<(), String> {
+    let p = std::path::Path::new(&path);
+    if !p.exists() {
+        return Err(format!("Path does not exist: {}", path));
+    }
+    if !p.is_dir() {
+        return Err(format!("Path is not a directory: {}", path));
+    }
+
     #[cfg(target_os = "macos")]
     {
         std::process::Command::new("open")
@@ -629,6 +600,7 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_store::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .manage(TmdbState {
             api_key: Mutex::new(DEFAULT_TMDB_API_KEY.to_string()),
         })
@@ -646,7 +618,6 @@ pub fn run() {
             get_genres,
             search_tmdb,
             search_torrents,
-            check_update,
             open_in_file_manager,
             torrent::add_torrent,
             torrent::get_torrent_metadata,
@@ -660,8 +631,12 @@ pub fn run() {
             torrent::update_clear_streaming_setting,
             torrent::update_ratelimits,
             torrent::set_download_path,
+            torrent::get_api_port,
         ])
         .setup(|app| {
+            #[cfg(desktop)]
+            app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
+
             // On Linux, register the deep link scheme at runtime via xdg-settings.
             // On macOS/Windows it is handled automatically by the app bundle.
             #[cfg(target_os = "linux")]
@@ -728,7 +703,8 @@ pub fn run() {
                 if let Ok(session) = librqbit::Session::new_with_opts(default_path.clone(), opts).await {
                     let session_arc = session; // Session::new_with_opts already returns Arc<Session>
 
-                    // Generate random credentials for the local HTTP API
+                    // Generate random credentials for internal API calls
+                    let username = "buccaneer";
                     let password = format!("{}-{}",
                         std::time::SystemTime::now()
                             .duration_since(std::time::UNIX_EPOCH)
@@ -736,27 +712,45 @@ pub fn run() {
                             .as_nanos(),
                         std::process::id()
                     );
-                    let api_credentials = format!("Basic {}", base64::engine::general_purpose::STANDARD.encode(format!("buccaneer:{}", password)));
-                    let api_credentials_url = format!("buccaneer:{}", password);
-                    let api_opts = librqbit::http_api::HttpApiOptions {
-                        basic_auth: Some(("buccaneer".to_string(), password)),
-                        ..Default::default()
+                    let api_userpass = format!("{}:{}", username, password);
+                    let api_credentials = format!("Basic {}", base64::engine::general_purpose::STANDARD.encode(&api_userpass));
+
+                    // Create API and HTTP API with basic auth enforced server-side
+                    let http_api_opts = librqbit::http_api::HttpApiOptions {
+                        read_only: false,
+                        basic_auth: Some((username.to_string(), password)),
                     };
-
-                    // Create API and HTTP API
                     let api = librqbit::api::Api::new(session_arc.clone(), None, None);
-                    let http_api = librqbit::http_api::HttpApi::new(api, Some(api_opts));
+                    let http_api = librqbit::http_api::HttpApi::new(api, Some(http_api_opts));
 
-                    // Start the HTTP server on port 3030
-                    if let Ok(listener) = tokio::net::TcpListener::bind("127.0.0.1:3030").await {
-                        tokio::spawn(async move {
-                            if let Err(e) = http_api.make_http_api_and_run(listener, None).await {
-                                log::error!("HTTP API error: {}", e);
+                    // Try to bind to a port starting from 3030, with fallback up to 3049
+                    let mut port = 3030u16;
+                    let api_port = loop {
+                        match tokio::net::TcpListener::bind(format!("127.0.0.1:{}", port)).await {
+                            Ok(listener) => {
+                                tokio::spawn(async move {
+                                    if let Err(e) = http_api.make_http_api_and_run(listener, None).await {
+                                        log::error!("HTTP API error: {}", e);
+                                    }
+                                });
+                                break port;
                             }
-                        });
-                    } else {
-                        log::error!("Failed to bind to 127.0.0.1:3030");
-                    }
+                            Err(_) if port < 3049 => {
+                                log::warn!("Port {} is in use, trying next...", port);
+                                port += 1;
+                            }
+                            Err(e) => {
+                                log::error!("Failed to bind to any port from 3030 to 3049: {}", e);
+                                drop(http_api);
+                                drop(session_arc);
+                                let _ = handle.dialog()
+                                    .message("Could not start the torrent engine because ports 3030–3049 are all in use.\nPlease close other applications using these ports and restart.")
+                                    .title("Torrent Engine Error")
+                                    .show(|_| {});
+                                return;
+                            }
+                        }
+                    };
 
                     handle.manage(torrent::TorrentState {
                         session: session_arc.clone(),
@@ -769,17 +763,19 @@ pub fn run() {
                         )),
                         clear_streaming_on_exit: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true)),
                         api_credentials: api_credentials.clone(),
-                        api_credentials_url,
+                        api_port,
+                        api_userpass: api_userpass.clone(),
                     });
 
                     // Clean up restored torrents whose output directory no longer exists
                     let cleanup_client = Client::new();
                     let cleanup_credentials = api_credentials.clone();
+                    let cleanup_port = api_port;
                     tauri::async_runtime::spawn(async move {
                         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 
                         if let Ok(resp) = cleanup_client
-                            .get("http://127.0.0.1:3030/torrents")
+                            .get(format!("http://127.0.0.1:{}/torrents", cleanup_port))
                             .header("Authorization", &cleanup_credentials)
                             .send()
                             .await
@@ -838,49 +834,44 @@ pub fn run() {
                     )
                 };
 
-                // Spawn a new thread so we don't block the event loop, then explicitly exit
-                std::thread::spawn(move || {
-                    log::info!("Starting exit cleanup. Stream IDs: {:?}, Clear files: {}", stream_ids, clear_files);
-                    
-                    for id in stream_ids {
-                        let session_clone = session.clone();
-                        tauri::async_runtime::block_on(async move {
-                            // Tell librqbit to delete the files as well if clear_files is true
-                            let _ = session_clone
-                                .delete(librqbit::api::TorrentIdOrHash::Id(id), clear_files)
-                                .await;
-                        });
-                    }
+                log::info!("Starting exit cleanup. Stream IDs: {:?}, Clear files: {}", stream_ids, clear_files);
+                
+                for id in stream_ids {
+                    let session_clone = session.clone();
+                    tauri::async_runtime::block_on(async move {
+                        let _ = session_clone
+                            .delete(librqbit::api::TorrentIdOrHash::Id(id), clear_files)
+                            .await;
+                    });
+                }
 
-                    if clear_files {
-                        let streaming_dir = std::path::Path::new(&base_path).join("Streaming");
-                        log::info!("Deleting streaming directory: {:?}", streaming_dir);
-                        
-                        // Retry with exponential backoff to ensure librqbit releases file locks
-                        let mut retries = 5;
-                        let mut delay_ms = 200;
-                        loop {
-                            match std::fs::remove_dir_all(&streaming_dir) {
-                                Ok(_) => {
-                                    log::info!("Successfully deleted streaming directory.");
+                if clear_files {
+                    let streaming_dir = std::path::Path::new(&base_path).join("Streaming");
+                    log::info!("Deleting streaming directory: {:?}", streaming_dir);
+                    
+                    let mut retries = 5;
+                    let mut delay_ms = 200;
+                    loop {
+                        match std::fs::remove_dir_all(&streaming_dir) {
+                            Ok(_) => {
+                                log::info!("Successfully deleted streaming directory.");
+                                break;
+                            }
+                            Err(e) => {
+                                retries -= 1;
+                                if retries == 0 {
+                                    log::error!("Failed to delete streaming directory after 5 retries: {}", e);
                                     break;
                                 }
-                                Err(e) => {
-                                    retries -= 1;
-                                    if retries == 0 {
-                                        log::error!("Failed to delete streaming directory after 5 retries: {}", e);
-                                        break;
-                                    }
-                                    std::thread::sleep(std::time::Duration::from_millis(delay_ms));
-                                    delay_ms *= 2;
-                                }
+                                std::thread::sleep(std::time::Duration::from_millis(delay_ms));
+                                delay_ms *= 2;
                             }
                         }
                     }
+                }
 
-                    log::info!("Cleanup finished. Exiting process.");
-                    std::process::exit(0);
-                });
+                log::info!("Cleanup finished.");
+                std::process::exit(0);
             }
         });
 }

@@ -34,12 +34,14 @@ function App() {
       '/', '/search', '/discover', '/settings', '/downloads', '/favorites',
     ]);
 
+    let lastDeepLink = 0;
     const unlistenDeepLink = onOpenUrl((urls) => {
-      if (urls.length === 0) return;
+      const now = Date.now();
+      if (urls.length === 0 || now - lastDeepLink < 1000) return;
+      lastDeepLink = now;
       try {
         const url = new URL(urls[0]);
         const path = url.hostname ? '/' + url.hostname + url.pathname : '/';
-        // Only navigate to valid routes to prevent deep link abuse
         const normalized = path.replace(/\/+$/, '') || '/';
         if (VALID_ROUTES.has(normalized) || /^\/(movie|tv)\/\d+$/.test(normalized)) {
           navigate(normalized);
@@ -107,10 +109,10 @@ function App() {
         isOpen={closeDialogOpen}
         onClose={handleCancelClose}
         onConfirm={handleConfirmClose}
-        title="Attenzione"
-        message="Ci sono download attivi, in pausa o completati. Vuoi chiudere comunque?"
-        confirmLabel="Chiudi comunque"
-        cancelLabel="Annulla"
+        title="Warning"
+        message="There are active, paused, or completed downloads. Are you sure you want to close?"
+        confirmLabel="Close anyway"
+        cancelLabel="Cancel"
         kind="warning"
       />
     </LibraryProvider>

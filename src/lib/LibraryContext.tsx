@@ -21,25 +21,44 @@ const LibraryContext = createContext<LibraryContextValue | null>(null);
 export function LibraryProvider({ children }: { children: React.ReactNode }) {
   const [favorites, setFavorites] = useState<FavoriteItem[]>([]);
   const [watched, setWatched] = useState<WatchedMap>({});
-  const loaded = useRef(false);
+  const initialized = useRef(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const latestFavorites = useRef(favorites);
+  const latestWatched = useRef(watched);
 
-  // Load on mount
+  latestFavorites.current = favorites;
+  latestWatched.current = watched;
+
+  // Load on mount (once; ref survives StrictMode double-mount)
   useEffect(() => {
-    loadLibrary().then((data) => {
-      setFavorites(data.favorites);
-      setWatched(data.watched);
-      loaded.current = true;
-    });
+    if (initialized.current) return;
+    loadLibrary()
+      .then((data) => {
+        setFavorites(data.favorites);
+        setWatched(data.watched);
+        initialized.current = true;
+      })
+      .catch(console.error);
   }, []);
 
   // Persist on change with debounce (skip initial load)
   useEffect(() => {
-    if (!loaded.current) return;
-    const timer = setTimeout(() => {
+    if (!initialized.current) return;
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
       saveLibrary({ favorites, watched }).catch(console.error);
     }, 500);
-    return () => clearTimeout(timer);
   }, [favorites, watched]);
+
+  // Flush pending save on unmount
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+        saveLibrary({ favorites: latestFavorites.current, watched: latestWatched.current }).catch(console.error);
+      }
+    };
+  }, []);
 
   const toggleFavorite = useCallback((item: Omit<FavoriteItem, 'addedAt'>) => {
     setFavorites((prev) => {

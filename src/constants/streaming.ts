@@ -18,7 +18,7 @@ export const STREAMING_PROVIDERS: Record<string, number> = {
 };
 
 export const REGIONS: Region[] = [
-  { value: 'IT', label: 'Italia' },
+  { value: 'IT', label: 'Italy' },
   { value: 'US', label: 'United States' },
   { value: 'GB', label: 'United Kingdom' },
   { value: 'FR', label: 'France' },

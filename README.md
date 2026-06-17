@@ -71,10 +71,10 @@ Pre-built installers are available on the [releases page](https://github.com/hei
 
 | OS                     | Download                                                                                                                      |
 | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| **macOS** (Apple Silicon) | [`Buccaneer_0.9.4_aarch64.dmg`](https://github.com/heiwin/Buccaneer/releases/download/v0.9.4/Buccaneer_0.9.4_aarch64.dmg) |
-| **macOS** (Intel Mac)     | [`Buccaneer_0.9.4_x64.dmg`](https://github.com/heiwin/Buccaneer/releases/download/v0.9.4/Buccaneer_0.9.4_x64.dmg)          |
-| **Windows**               | [`Buccaneer_0.9.4_x64_en-US.msi`](https://github.com/heiwin/Buccaneer/releases/download/v0.9.4/Buccaneer_0.9.4_x64_en-US.msi) |
-| **Linux**                 | [`Buccaneer_0.9.4_amd64.AppImage`](https://github.com/heiwin/Buccaneer/releases/download/v0.9.4/Buccaneer_0.9.4_amd64.AppImage) · [`Buccaneer_0.9.4_amd64.deb`](https://github.com/heiwin/Buccaneer/releases/download/v0.9.4/Buccaneer_0.9.4_amd64.deb) |
+| **macOS** (Apple Silicon) | [`Buccaneer_0.9.5_aarch64.dmg`](https://github.com/heiwin/Buccaneer/releases/download/v0.9.5/Buccaneer_0.9.5_aarch64.dmg) |
+| **macOS** (Intel Mac)     | [`Buccaneer_0.9.5_x64.dmg`](https://github.com/heiwin/Buccaneer/releases/download/v0.9.5/Buccaneer_0.9.5_x64.dmg)          |
+| **Windows**               | [`Buccaneer_0.9.5_x64_en-US.msi`](https://github.com/heiwin/Buccaneer/releases/download/v0.9.5/Buccaneer_0.9.5_x64_en-US.msi) |
+| **Linux**                 | [`Buccaneer_0.9.5_amd64.AppImage`](https://github.com/heiwin/Buccaneer/releases/download/v0.9.5/Buccaneer_0.9.5_amd64.AppImage) · [`Buccaneer_0.9.5_amd64.deb`](https://github.com/heiwin/Buccaneer/releases/download/v0.9.5/Buccaneer_0.9.5_amd64.deb) |
 
 > **⚠️ macOS Unverified Developer Notice**
 >

@@ -1,9 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { NavLink } from 'react-router-dom';
-import { Home, Compass, Search, Settings, HardDrive, Heart, ExternalLink, CheckCircle2 } from 'lucide-react';
+import { Home, Compass, Search, Settings, HardDrive, Heart, Download, RefreshCw, CheckCircle2, AlertCircle } from 'lucide-react';
 import appIcon from '../assets/icon.png';
-import { checkForUpdate, type UpdateInfo } from '../api/updater';
-import { open } from '@tauri-apps/plugin-shell';
+import { getVersion } from '@tauri-apps/api/app';
+import { checkForUpdate } from '../api/updater';
+import type { UpdateState } from '../api/updater';
+import { relaunch } from '@tauri-apps/plugin-process';
 
 interface NavItemProps {
   to: string;
@@ -31,13 +33,167 @@ function NavItem({ to, icon, label }: NavItemProps) {
 }
 
 export function Sidebar() {
-  const [update, setUpdate] = useState<UpdateInfo | null>(null);
+  const [updateState, setUpdateState] = useState<UpdateState>({ status: 'checking' });
+  const [currentVersion, setCurrentVersion] = useState<string>('');
 
   useEffect(() => {
+    getVersion().then(setCurrentVersion).catch(() => {});
     checkForUpdate()
-      .then(setUpdate)
-      .catch(() => { /* silently ignore */ });
+      .then((update) => {
+        if (update) {
+          setUpdateState({ status: 'available', update });
+          setCurrentVersion(update.currentVersion);
+        } else {
+          setUpdateState({ status: 'idle' });
+        }
+      })
+      .catch(() => {
+        setUpdateState({ status: 'idle' });
+      });
   }, []);
+
+  const handleDownload = useCallback(async () => {
+    const state = updateState;
+    if (state.status !== 'available') return;
+    const { update } = state;
+    try {
+      await update.download((event) => {
+        switch (event.event) {
+          case 'Started':
+            setUpdateState({
+              status: 'downloading',
+              progress: 0,
+              total: event.data.contentLength ?? 0,
+            });
+            break;
+          case 'Progress': {
+            setUpdateState((prev) => {
+              if (prev.status !== 'downloading') return prev;
+              return {
+                ...prev,
+                progress: prev.progress + event.data.chunkLength,
+              };
+            });
+            break;
+          }
+          case 'Finished':
+            setUpdateState({ status: 'downloaded', update });
+            break;
+        }
+      });
+    } catch (e: unknown) {
+      setUpdateState({ status: 'error', message: e instanceof Error ? e.message : 'Download failed' });
+    }
+  }, [updateState]);
+
+  const handleInstall = useCallback(async () => {
+    const state = updateState;
+    if (state.status !== 'downloaded') return;
+    try {
+      setUpdateState({ status: 'installing' });
+      await state.update.install();
+      await relaunch();
+    } catch (e: unknown) {
+      setUpdateState({ status: 'error', message: e instanceof Error ? e.message : 'Install failed' });
+    }
+  }, [updateState]);
+
+  const handleRetry = useCallback(() => {
+    setUpdateState({ status: 'checking' });
+    checkForUpdate()
+      .then((update) => {
+        if (update) {
+          setUpdateState({ status: 'available', update });
+          setCurrentVersion(update.currentVersion);
+        } else {
+          setUpdateState({ status: 'idle' });
+        }
+      })
+      .catch(() => {
+        setUpdateState({ status: 'error', message: 'Failed to check for updates' });
+      });
+  }, []);
+
+  const renderUpdateBanner = () => {
+    switch (updateState.status) {
+      case 'checking':
+        return (
+          <div className="flex items-center gap-2 px-3 py-2 mb-2 text-xs rounded-xl bg-zinc-800/30 border border-zinc-700/40 text-zinc-400">
+            <RefreshCw size={14} className="animate-spin" />
+            <span className="hidden lg:inline font-medium">Checking for updates...</span>
+          </div>
+        );
+
+      case 'available':
+        return (
+          <button
+            onClick={handleDownload}
+            title={`Update ${updateState.update.version} available — click to download`}
+            className="flex items-center gap-2 px-3 py-2 mb-2 text-xs rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20 transition-colors cursor-pointer w-full"
+          >
+            <Download size={14} />
+            <span className="hidden lg:inline font-semibold">Update {updateState.update.version} available</span>
+            <span className="lg:hidden font-semibold">↓</span>
+          </button>
+        );
+
+      case 'downloading': {
+        const pct = updateState.total > 0
+          ? Math.round((updateState.progress / updateState.total) * 100)
+          : 0;
+        return (
+          <div className="flex flex-col gap-1 px-3 py-2 mb-2 text-xs rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-400">
+            <div className="flex items-center gap-2">
+              <Download size={14} />
+              <span className="hidden lg:inline font-medium">Downloading update... {pct}%</span>
+              <span className="lg:hidden">{pct}%</span>
+            </div>
+            <div className="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-blue-500 rounded-full transition-all duration-300"
+                style={{ width: `${pct}%` }}
+              />
+            </div>
+          </div>
+        );
+      }
+
+      case 'downloaded':
+        return (
+          <button
+            onClick={handleInstall}
+            className="flex items-center gap-2 px-3 py-2 mb-2 text-xs rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20 hover:border-emerald-500/40 transition-colors cursor-pointer w-full"
+          >
+            <Download size={14} />
+            <span className="hidden lg:inline font-semibold">Install & Restart</span>
+            <span className="lg:hidden">↓</span>
+          </button>
+        );
+
+      case 'installing':
+        return (
+          <div className="flex items-center gap-2 px-3 py-2 mb-2 text-xs rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400">
+            <RefreshCw size={14} className="animate-spin" />
+            <span className="hidden lg:inline font-medium">Installing update...</span>
+          </div>
+        );
+
+      case 'error':
+        return (
+          <button
+            onClick={handleRetry}
+            className="flex items-center gap-2 px-3 py-2 mb-2 text-xs rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 hover:bg-rose-500/20 transition-colors cursor-pointer w-full"
+          >
+            <AlertCircle size={14} />
+            <span className="hidden lg:inline font-medium">Update failed — Retry</span>
+            <span className="lg:hidden">!</span>
+          </button>
+        );
+
+      case 'idle':
+        return null;
+    }
+  };
 
   return (
     <aside className="w-20 lg:w-64 border-r border-zinc-800/50 flex flex-col justify-between py-8 shrink-0">
@@ -63,27 +219,16 @@ export function Sidebar() {
       </div>
 
       <div className="flex flex-col gap-2 px-4 lg:px-6">
-        {update && (
-          update.available ? (
-            <button
-              onClick={() => open('https://github.com/heiwin/Buccaneer/releases/latest')}
-              title={`Update ${update.latestVersion} available — click to download`}
-              className="flex items-center gap-2 px-3 py-2 mb-2 text-xs rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20 transition-colors cursor-pointer"
-            >
-              <ExternalLink size={14} />
-              <span className="hidden lg:inline font-semibold">Update {update.latestVersion} available</span>
-              <span className="lg:hidden font-semibold">⬆</span>
-            </button>
-          ) : (
-            <div
-              title={`Buccaneer is up to date (${update.currentVersion})`}
-              className="flex items-center gap-2 px-3 py-2 mb-2 text-xs rounded-xl bg-zinc-800/30 border border-zinc-700/40 text-zinc-500"
-            >
-              <CheckCircle2 size={14} />
-              <span className="hidden lg:inline font-medium">Up to date ({update.currentVersion})</span>
-              <span className="lg:hidden">✓</span>
-            </div>
-          )
+        {renderUpdateBanner()}
+        {updateState.status === 'idle' && currentVersion && (
+          <div
+            title={`Buccaneer is up to date (${currentVersion})`}
+            className="flex items-center gap-2 px-3 py-2 mb-2 text-xs rounded-xl bg-zinc-800/30 border border-zinc-700/40 text-zinc-500"
+          >
+            <CheckCircle2 size={14} />
+            <span className="hidden lg:inline font-medium">Up to date ({currentVersion})</span>
+            <span className="lg:hidden">✓</span>
+          </div>
         )}
         <NavItem to="/settings" icon={<Settings size={20} />} label="Settings" />
       </div>

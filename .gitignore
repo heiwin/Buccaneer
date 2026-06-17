@@ -23,3 +23,8 @@ dist-ssr
 *.sln
 *.sw?
 buccaneer roadmap.txt
+Next ideas.txt
+
+# Tauri signing keys (private key must never be committed)
+tauri-signing-key
+tauri-signing-key.pub

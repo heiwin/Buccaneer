@@ -36,7 +36,8 @@ pub struct TorrentState {
     pub base_path: Arc<Mutex<String>>,
     pub clear_streaming_on_exit: Arc<AtomicBool>,
     pub api_credentials: String,
-    pub api_credentials_url: String,
+    pub api_port: u16,
+    pub api_userpass: String,
 }
 
 #[tauri::command]
@@ -105,7 +106,7 @@ pub async fn update_ratelimits(
     });
 
     let _res = state.http_client
-        .post("http://127.0.0.1:3030/torrents/limits")
+        .post(format!("http://127.0.0.1:{}/torrents/limits", state.api_port))
         .header("Content-Type", "application/json")
         .header("Authorization", &state.api_credentials)
         .json(&body)
@@ -139,6 +140,16 @@ pub async fn add_torrent(
     only_files: Option<Vec<usize>>,
 ) -> Result<String, String> {
     validate_magnet_or_url(&magnet_or_url)?;
+
+    if let Some(ref files) = only_files {
+        if files.is_empty() {
+            return Err("File selection cannot be empty".to_string());
+        }
+        if files.iter().any(|&i| i > 10000) {
+            return Err("Invalid file index: out of range".to_string());
+        }
+    }
+
     let add_torrent = AddTorrent::from_url(&magnet_or_url);
     
     let base = state.base_path.lock().map_err(|e| e.to_string())?.clone();
@@ -229,9 +240,9 @@ pub async fn remove_torrent(
 pub async fn get_active_torrents(
     state: State<'_, TorrentState>,
 ) -> Result<serde_json::Value, String> {
-    let url = "http://127.0.0.1:3030/torrents";
+    let url = format!("http://127.0.0.1:{}/torrents", state.api_port);
     let res = state.http_client
-        .get(url)
+        .get(&url)
         .header("Authorization", &state.api_credentials)
         .send()
         .await
@@ -310,7 +321,7 @@ pub async fn get_torrent_details(
 ) -> Result<serde_json::Value, String> {
     // Validate id is numeric to prevent path traversal
     id.parse::<usize>().map_err(|_| "Invalid torrent ID: must be numeric".to_string())?;
-    let url = format!("http://127.0.0.1:3030/torrents/{}", id);
+    let url = format!("http://127.0.0.1:{}/torrents/{}", state.api_port, id);
     let res = state.http_client
         .get(&url)
         .header("Authorization", &state.api_credentials)
@@ -363,4 +374,18 @@ pub async fn get_torrent_metadata(
         }
         _ => Err("Expected ListOnly response. Torrent might already be managed.".to_string()),
     }
+}
+
+#[derive(Serialize)]
+pub struct ApiConnection {
+    pub port: u16,
+    pub userpass: String,
+}
+
+#[tauri::command]
+pub async fn get_api_port(state: State<'_, TorrentState>) -> Result<ApiConnection, String> {
+    Ok(ApiConnection {
+        port: state.api_port,
+        userpass: state.api_userpass.clone(),
+    })
 }

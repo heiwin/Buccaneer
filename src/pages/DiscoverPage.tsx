@@ -1,6 +1,8 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Compass } from 'lucide-react';
 import { discoverMedia, getGenres } from '../api/tmdb';
+import { loadSettings } from '../api/settings';
+import { STREAMING_PROVIDERS } from '../constants/streaming';
 import { Select, SegmentedControl, Button, PageHeader, Spinner, ErrorBanner } from '../components/ui';
 import type { SelectOption } from '../components/ui';
 import type { TMDBListItem } from '../types/tmdb';
@@ -26,6 +28,7 @@ export function DiscoverPage() {
   const [results, setResults] = useState<TMDBListItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [watchRegion, setWatchRegion] = useState('IT');
 
   const currentYear = new Date().getFullYear();
   const years = Array.from({ length: 40 }, (_, i) => currentYear - i);
@@ -63,18 +66,21 @@ export function DiscoverPage() {
     { value: 'ko', label: 'Korean' },
   ];
 
+  // Derived from STREAMING_PROVIDERS in constants/streaming.ts — single source of truth
   const PROVIDER_OPTIONS: SelectOption[] = [
     { value: '', label: 'Any Platform' },
-    { value: '8', label: 'Netflix' },
-    { value: '119', label: 'Amazon Prime Video' },
-    { value: '337', label: 'Disney+' },
-    { value: '350', label: 'Apple TV+' },
-    { value: '531', label: 'Paramount+' },
-    { value: '384', label: 'HBO Max' },
-    { value: '1899', label: 'Max' },
-    { value: '386', label: 'Peacock' },
-    { value: '15', label: 'Hulu' },
+    ...Object.entries(STREAMING_PROVIDERS).map(([name, id]) => ({
+      value: id.toString(),
+      label: name,
+    })),
   ];
+
+  // Load user settings (watch region) once on mount
+  useEffect(() => {
+    loadSettings().then((s) => {
+      if (s.streamingRegion) setWatchRegion(s.streamingRegion);
+    }).catch(console.error);
+  }, []);
 
   // Load genres when mediaType changes, also reset filters
   useEffect(() => {
@@ -91,24 +97,17 @@ export function DiscoverPage() {
   }, [mediaType]);
 
   // Load results
-  const loadResults = useCallback(async () => {
+  useEffect(() => {
     setLoading(true);
     setError(null);
-    try {
-      const res = await discoverMedia(mediaType, selectedGenre, selectedYear, page, selectedRating, selectedLanguage, selectedProvider || null, 'IT', null);
-      setResults(res.results || []);
-      setTotalPages(Math.min(res.total_pages, 500));
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setLoading(false);
-    }
-  }, [mediaType, selectedGenre, selectedYear, page, selectedRating, selectedLanguage, selectedProvider]);
-
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    loadResults();
-  }, [loadResults]);
+    discoverMedia(mediaType, selectedGenre, selectedYear, page, selectedRating, selectedLanguage, selectedProvider || null, watchRegion || null, null)
+      .then((res) => {
+        setResults(res.results || []);
+        setTotalPages(Math.min(res.total_pages, 500));
+      })
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
+      .finally(() => setLoading(false));
+  }, [mediaType, selectedGenre, selectedYear, page, selectedRating, selectedLanguage, selectedProvider, watchRegion]);
 
   // Detect grid column count to avoid incomplete rows
   const gridRef = useRef<HTMLDivElement>(null);

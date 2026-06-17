@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
-import { Settings, Save, RotateCcw, Shield, ShieldOff, Trash2, FolderOpen, RefreshCw, HardDrive } from 'lucide-react';
+import { Search, Settings, Save, RotateCcw, Shield, ShieldOff, Trash2, FolderOpen, RefreshCw, HardDrive } from 'lucide-react';
 import { loadSettings, saveSettings, DEFAULTS, type AppSettings } from '../api/settings';
 import { invoke } from '@tauri-apps/api/core';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { open as openUrl } from '@tauri-apps/plugin-shell';
 import { autoDetectVlc } from '../api/torrent';
 import { Input, Button, Toggle, Select, PageHeader, ConfirmDialog } from '../components/ui';
+import { EmptyState } from '../components';
 import { clearTmdbCache } from '../api/tmdb';
 import { useLibrary } from '../lib/LibraryContext';
 import { STREAMING_PROVIDERS, REGIONS } from '../constants/streaming';
@@ -14,6 +15,7 @@ export function SettingsPage() {
   const [settings, setSettings] = useState<AppSettings>(DEFAULTS);
   const [saved, setSaved] = useState(false);
   const [apiKey, setApiKey] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
 
   // Load from store on mount
   useEffect(() => {
@@ -67,12 +69,46 @@ export function SettingsPage() {
     resetLibrary();
   };
 
+  const SECTION_KEYWORDS: Record<string, string[]> = {
+    tmdb: ['tmdb', 'api', 'key', 'metadata'],
+    system: ['system', 'download', 'folder', 'vlc', 'path', 'clear', 'streaming', 'notifications', 'network', 'limits', 'upload'],
+    filters: ['search', 'filters', 'unsafe', 'adult', 'xxx', 'hide'],
+    streaming: ['streaming', 'region', 'provider', 'trending'],
+    maintenance: ['maintenance', 'cache', 'library', 'reset', 'metadata'],
+  };
+
+  function matchesSearch(id: string, ...texts: string[]): boolean {
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase();
+    const keywords = SECTION_KEYWORDS[id] ?? [];
+    return [...keywords, ...texts].some(t => t.toLowerCase().includes(q));
+  }
+
+  const showTmdb = matchesSearch('tmdb', 'TMDB API Key', 'Used to fetch movie and TV metadata', 'themoviedb.org');
+  const showSystem = matchesSearch('system', 'System', 'Configure default download folder and VLC player path', 'Download Folder', 'VLC Executable Path', 'Clear /Streaming folder on exit', 'Network Limits', 'Download notifications', 'Download Limit', 'Upload Limit');
+  const showFilters = matchesSearch('filters', 'Search Filters', 'Applied to all Knaben torrent searches', 'Hide unsafe results', 'Hide adult content', 'Filters out very old results');
+  const showStreaming = matchesSearch('streaming', 'Streaming', 'Choose your region', 'Streaming Region', 'Show trending from');
+  const showMaintenance = matchesSearch('maintenance', 'Maintenance', 'Manage cached metadata and local library data', 'Clear Metadata Cache', 'Reset Library', 'Remove cached movie and TV information', 'Permanently remove all favorites');
+  const hasVisibleSections = showTmdb || showSystem || showFilters || showStreaming || showMaintenance;
+
   return (
     <div className="p-8 max-w-2xl">
       <PageHeader icon={Settings} title="Settings" className="mb-10" />
 
+      <div className="mb-6 max-w-md">
+        <Input
+          type="text"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder="Search settings…"
+          icon={<Search size={15} />}
+          className="rounded-full"
+        />
+      </div>
+
       <div className="space-y-8">
         {/* TMDB API Key */}
+        {showTmdb && (
         <section className="bg-zinc-900/50 border border-zinc-800/60 rounded-2xl p-6">
           <h2 className="text-sm font-bold uppercase tracking-widest text-zinc-400 mb-1">TMDB API Key</h2>
           <p className="text-xs text-zinc-600 mb-4">
@@ -93,8 +129,10 @@ export function SettingsPage() {
             className="font-mono"
           />
         </section>
+        )}
 
         {/* System Settings */}
+        {showSystem && (
         <section className="bg-zinc-900/50 border border-zinc-800/60 rounded-2xl p-6">
           <h2 className="text-sm font-bold uppercase tracking-widest text-zinc-400 mb-1">System</h2>
           <p className="text-xs text-zinc-600 mb-5">
@@ -239,8 +277,10 @@ export function SettingsPage() {
             </div>
           </div>
         </section>
+        )}
 
         {/* Search Filters */}
+        {showFilters && (
         <section className="bg-zinc-900/50 border border-zinc-800/60 rounded-2xl p-6">
           <h2 className="text-sm font-bold uppercase tracking-widest text-zinc-400 mb-1">Search Filters</h2>
           <p className="text-xs text-zinc-600 mb-5">
@@ -289,8 +329,10 @@ export function SettingsPage() {
             </label>
           </div>
         </section>
+        )}
 
         {/* Streaming */}
+        {showStreaming && (
         <section className="bg-zinc-900/50 border border-zinc-800/60 rounded-2xl p-6">
           <h2 className="text-sm font-bold uppercase tracking-widest text-zinc-400 mb-1">Streaming</h2>
           <p className="text-xs text-zinc-600 mb-5">
@@ -329,8 +371,10 @@ export function SettingsPage() {
             ))}
           </div>
         </section>
+        )}
 
         {/* Maintenance */}
+        {showMaintenance && (
         <section className="bg-zinc-900/50 border border-zinc-800/60 rounded-2xl p-6">
           <h2 className="text-sm font-bold uppercase tracking-widest text-zinc-400 mb-1">Maintenance</h2>
           <p className="text-xs text-zinc-600 mb-5">
@@ -384,6 +428,11 @@ export function SettingsPage() {
             </div>
           </div>
         </section>
+        )}
+
+        {searchQuery.trim() && !hasVisibleSections && (
+          <EmptyState icon={Search} message={`No settings match "${searchQuery}"`} subMessage="Try a different search term" />
+        )}
 
         {/* Actions */}
         <div className="flex items-center gap-3">
@@ -403,30 +452,28 @@ export function SettingsPage() {
             Reset to defaults
           </Button>
         </div>
-
-
-
-        <ConfirmDialog
-          isOpen={showResetConfirm}
-          onClose={() => setShowResetConfirm(false)}
-          onConfirm={handleResetLibrary}
-          title="Reset Library"
-          message="This will permanently delete all your favorites and watched history. This action cannot be undone."
-          confirmLabel="Reset Library"
-          kind="danger"
-        />
-
-        <ConfirmDialog
-          isOpen={vlcDetectDialog}
-          onClose={() => setVlcDetectDialog(false)}
-          onConfirm={() => setVlcDetectDialog(false)}
-          title="VLC Detection Failed"
-          message="Could not auto-detect VLC path. Please enter it manually."
-          confirmLabel="OK"
-          kind="info"
-          hideCancel
-        />
       </div>
+
+      <ConfirmDialog
+        isOpen={showResetConfirm}
+        onClose={() => setShowResetConfirm(false)}
+        onConfirm={handleResetLibrary}
+        title="Reset Library"
+        message="This will permanently delete all your favorites and watched history. This action cannot be undone."
+        confirmLabel="Reset Library"
+        kind="danger"
+      />
+
+      <ConfirmDialog
+        isOpen={vlcDetectDialog}
+        onClose={() => setVlcDetectDialog(false)}
+        onConfirm={() => setVlcDetectDialog(false)}
+        title="VLC Detection Failed"
+        message="Could not auto-detect VLC path. Please enter it manually."
+        confirmLabel="OK"
+        kind="info"
+        hideCancel
+      />
     </div>
   );
 }
