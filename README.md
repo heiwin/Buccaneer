@@ -28,7 +28,7 @@
 
 ## Features
 
-- **Torrent Search** — Multi-tracker via Knaben (1337x, TPB, YTS, Nyaa.si) with apibay fallback and dedicated YTS/EZTV sources.
+- **Torrent Search** — Multi-source search with smart fallback between providers.
 - **Notification Bell** — Bell icon on HomePage shows new episodes for favorited TV series; click navigates directly to the show.
 - **Stream & Download** — Stream in VLC or download with pause/resume and file selection.
 - **TMDB Integration** — Trending, details, cast, trailers, ratings; full Discover by genre/year/platform.
@@ -93,11 +93,11 @@ Pre-built installers are available on the [releases page](https://github.com/hei
 
 ## Key Design Decisions
 
-1. **Backend-proxied network requests** — All TMDB, Knaben, apibay, YTS, and EZTV requests go through the Rust backend, not the frontend. This keeps API keys secure and allows server-side tracker filtering.
+1. **Backend-proxied network requests** — All TMDB and torrent API requests go through the Rust backend, not the frontend. This keeps API keys secure and allows server-side tracker filtering.
 
 2. **Embedded librqbit HTTP API** — librqbit runs an HTTP API on `127.0.0.1:3030` inside the app process. The frontend communicates with it via Tauri commands that internally use the librqbit Rust API.
 
-3. **Multi-source search** — The primary search source is the Knaben API (results filtered to 1337x, The Pirate Bay, YTS, Nyaa.si). If Knaben returns empty results or errors, it falls back to apibay.org (The Pirate Bay mirror). Dedicated YTS and EZTV sources are also available for movie and TV-series-specific searches.
+3. **Multi-source search** — Searches are routed across multiple torrent sources with automatic fallback when a source returns no results.
 
 4. **In-memory TMDB cache** — TMDB responses are cached for 10 minutes using a simple in-memory Map. This prevents redundant API calls and improves perceived performance.
 
