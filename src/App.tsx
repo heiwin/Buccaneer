@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, lazy, Suspense } from 'react';
 import { Routes, Route, useNavigate } from 'react-router-dom';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -8,13 +8,14 @@ import { getActiveTorrents } from './api/torrent';
 import { LibraryProvider } from './lib/LibraryContext';
 import { Sidebar } from './components';
 import { ConfirmDialog, ErrorBoundary } from './components/ui';
-import { HomePage } from './pages/HomePage';
-import { DetailPage } from './pages/DetailPage';
-import { SearchPage } from './pages/SearchPage';
-import { DiscoverPage } from './pages/DiscoverPage';
-import { SettingsPage } from './pages/SettingsPage';
-import { DownloadsPage } from './pages/DownloadsPage';
-import { FavoritesPage } from './pages/FavoritesPage';
+
+const HomePage = lazy(() => import('./pages/HomePage').then(m => ({ default: m.HomePage })));
+const DetailPage = lazy(() => import('./pages/DetailPage').then(m => ({ default: m.DetailPage })));
+const SearchPage = lazy(() => import('./pages/SearchPage').then(m => ({ default: m.SearchPage })));
+const DiscoverPage = lazy(() => import('./pages/DiscoverPage').then(m => ({ default: m.DiscoverPage })));
+const SettingsPage = lazy(() => import('./pages/SettingsPage').then(m => ({ default: m.SettingsPage })));
+const DownloadsPage = lazy(() => import('./pages/DownloadsPage').then(m => ({ default: m.DownloadsPage })));
+const FavoritesPage = lazy(() => import('./pages/FavoritesPage').then(m => ({ default: m.FavoritesPage })));
 
 function App() {
   const navigate = useNavigate();
@@ -91,16 +92,18 @@ function App() {
         <div className="flex h-screen bg-background text-gray-100 overflow-hidden">
           <Sidebar />
           <main className="flex-1 overflow-y-auto overflow-x-hidden">
-            <Routes>
-              <Route path="/" element={<HomePage />} />
-              <Route path="/movie/:id" element={<DetailPage mediaType="movie" />} />
-              <Route path="/tv/:id" element={<DetailPage mediaType="tv" />} />
-              <Route path="/search" element={<SearchPage />} />
-              <Route path="/discover" element={<DiscoverPage />} />
-              <Route path="/settings" element={<SettingsPage />} />
-              <Route path="/downloads" element={<DownloadsPage />} />
-              <Route path="/favorites" element={<FavoritesPage />} />
-            </Routes>
+            <Suspense fallback={<div className="flex items-center justify-center h-full" role="status"><span className="loading loading-spinner" /></div>}>
+              <Routes>
+                <Route path="/" element={<HomePage />} />
+                <Route path="/movie/:id" element={<DetailPage mediaType="movie" />} />
+                <Route path="/tv/:id" element={<DetailPage mediaType="tv" />} />
+                <Route path="/search" element={<SearchPage />} />
+                <Route path="/discover" element={<DiscoverPage />} />
+                <Route path="/settings" element={<SettingsPage />} />
+                <Route path="/downloads" element={<DownloadsPage />} />
+                <Route path="/favorites" element={<FavoritesPage />} />
+              </Routes>
+            </Suspense>
           </main>
         </div>
       </ErrorBoundary>

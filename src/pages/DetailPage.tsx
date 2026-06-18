@@ -50,6 +50,7 @@ export function DetailPage({ mediaType }: DetailPageProps) {
   const [source, setSource] = useState('knaben');
   
   const torrentSectionRef = useRef<HTMLDivElement>(null);
+  const episodeSearchRef = useRef(false);
 
   // TV Specific state
   const [selectedSeason, setSelectedSeason] = useState<number | null>(null);
@@ -98,6 +99,10 @@ export function DetailPage({ mediaType }: DetailPageProps) {
   // Fetch torrents when query or filters change
   useEffect(() => {
     if (!searchQuery) return;
+    if (episodeSearchRef.current) {
+      episodeSearchRef.current = false;
+      return;
+    }
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setTorrentsLoading(true);
     setTorrentsError(null);
@@ -119,12 +124,54 @@ export function DetailPage({ mediaType }: DetailPageProps) {
     torrentSectionRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  const handleSearchEpisode = (episodeNumber: number) => {
+  const handleSearchEpisode = async (episodeNumber: number) => {
     if (!details || isMovie(details) || selectedSeason === null) return;
-    const rawTitle = details.name.replace(/[:'-]/g, ' ').replace(/\s+/g, ' ').trim();
-    const query = `${rawTitle} s${String(selectedSeason).padStart(2, '0')}e${String(episodeNumber).padStart(2, '0')}`;
-    setSearchQuery(query);
-    setSource('eztv');
+
+    const name = details.name;
+    const year = details.first_air_date
+      ? new Date(details.first_air_date).getFullYear().toString()
+      : '';
+    const rawTitle = name.replace(/[:'-]/g, ' ').replace(/\s+/g, ' ').trim();
+    const episode = `s${String(selectedSeason).padStart(2, '0')}e${String(episodeNumber).padStart(2, '0')}`;
+
+    // Query 1: "Titolo Anno sXXeYY"
+    const query1 = year ? `${rawTitle} ${year} ${episode}` : `${rawTitle} ${episode}`;
+
+    // Query 2: "Titolo.sXXeYY" (dots instead of spaces)
+    const dottedTitle = rawTitle.replace(/\s+/g, '.');
+    const query2 = `${dottedTitle}.${episode}`;
+
+    const finalQuery1 = buildSearchQuery(query1, qualityFilter, languageFilter);
+    const finalQuery2 = buildSearchQuery(query2, qualityFilter, languageFilter);
+
+    episodeSearchRef.current = true;
+    setSearchQuery(query1);
+    setSource('knaben');
+
+    setTorrentsLoading(true);
+    setTorrentsError(null);
+
+    try {
+      const [res1, res2] = await Promise.all([
+        searchTorrents(finalQuery1, 'tv', 'knaben', Number(id)),
+        searchTorrents(finalQuery2, 'tv', 'knaben', Number(id)),
+      ]);
+
+      const seen = new Set<string>();
+      const merged = [...(res1.hits || []), ...(res2.hits || [])].filter((item) => {
+        const key = item.hash || item.id;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+
+      setTorrents(merged);
+    } catch (e: unknown) {
+      setTorrentsError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setTorrentsLoading(false);
+    }
+
     torrentSectionRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 

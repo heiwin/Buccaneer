@@ -28,3 +28,7 @@ Next ideas.txt
 # Tauri signing keys (private key must never be committed)
 tauri-signing-key
 tauri-signing-key.pub
+
+# Environment variables (contains signing key password)
+.env
+.env.local
