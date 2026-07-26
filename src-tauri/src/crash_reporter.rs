@@ -16,7 +16,15 @@ struct FileLogger {
 
 impl log::Log for FileLogger {
     fn enabled(&self, metadata: &log::Metadata) -> bool {
-        metadata.level() <= log::Level::Warn
+        if metadata.level() > log::Level::Warn {
+            return false;
+        }
+        if metadata.target().starts_with("librqbit")
+            || metadata.target().starts_with("tracing::span")
+        {
+            return false;
+        }
+        true
     }
 
     fn log(&self, record: &log::Record) {
