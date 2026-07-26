@@ -65,11 +65,15 @@ export function HomePage() {
   }, [favorites]);
 
   useEffect(() => {
-    async function loadData() {
+    let cancelled = false;
+
+    async function loadData(retries = 5, delay = 1000): Promise<void> {
       const [moviesRes, tvRes] = await Promise.allSettled([
         getTrendingMovies(),
         getTrendingTvSeries(),
       ]);
+
+      if (cancelled) return;
 
       if (moviesRes.status === 'fulfilled') {
         setMovies(moviesRes.value.results || []);
@@ -85,13 +89,21 @@ export function HomePage() {
       if (tvRes.status === 'rejected') {
         errors.push(`TV: ${tvRes.reason}`);
       }
+
+      if (errors.length > 0 && retries > 0) {
+        await new Promise(r => setTimeout(r, delay));
+        return loadData(retries - 1, delay * 1.5);
+      }
+
       if (errors.length > 0) {
         console.error('Trending fetch errors:', errors);
         setError(`Failed to fetch trending data: ${errors.join('; ')}`);
       }
       setLoading(false);
     }
+
     loadData();
+    return () => { cancelled = true; };
   }, []);
 
   useEffect(() => {
