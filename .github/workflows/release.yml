@@ -62,18 +62,14 @@ jobs:
       - uses: tauri-apps/tauri-action@1ddc7b49b13c3038297360482fcb3e058764d7c9 # v0.6.2
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: "0.9.6"
+          releaseName: "0.9.6.1"
           releaseBody: |
-            ## Buccaneer v0.9.6
+            ## Buccaneer v0.9.6.1
 
-            Minor bug fixes, minor new features.
+            Hotfix release.
 
             ### Changes
-            - Fixed crash on app exit (null pointer dereference in ExitRequested handler)
-            - Added crash reporter — writes error logs and crash reports to `logs/` directory
-            - Added proper download time tracking — backend records `added_at` and `completed_at`
-            - Sort by time now uses backend timestamps instead of client-side only
-            - Renamed sort options: "Time added" → "Time Added", "Time finished" → "Time Completed"
+            - Filtered librqbit noise from file logger — `buccaneer.log` no longer fills up with internal librqbit ERROR messages
 
             Download the appropriate asset for your platform:
             - **macOS (Intel)**: `.dmg` (x86_64)
