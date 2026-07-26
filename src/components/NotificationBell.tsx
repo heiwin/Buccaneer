@@ -8,9 +8,10 @@ interface NotificationBellProps {
   episodes: NewEpisode[];
   count: number;
   loading: boolean;
+  onAcknowledge?: () => void;
 }
 
-export function NotificationBell({ episodes, count, loading }: NotificationBellProps) {
+export function NotificationBell({ episodes, count, loading, onAcknowledge }: NotificationBellProps) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
@@ -29,7 +30,10 @@ export function NotificationBell({ episodes, count, loading }: NotificationBellP
   return (
     <div ref={ref} className="relative">
       <button
-        onClick={() => setOpen(!open)}
+        onClick={() => {
+          if (!open && count > 0) onAcknowledge?.();
+          setOpen(!open);
+        }}
         className="relative p-2 rounded-full hover:bg-zinc-800 transition-colors"
         title="New episodes"
       >

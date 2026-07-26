@@ -2,9 +2,10 @@ import { useState, useEffect } from 'react';
 import { Search, Settings, Save, RotateCcw, Shield, ShieldOff, Trash2, FolderOpen, RefreshCw, HardDrive } from 'lucide-react';
 import { loadSettings, saveSettings, DEFAULTS, type AppSettings } from '../api/settings';
 import { invoke } from '@tauri-apps/api/core';
+import { appDataDir } from '@tauri-apps/api/path';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { open as openUrl } from '@tauri-apps/plugin-shell';
-import { autoDetectVlc } from '../api/torrent';
+import { autoDetectVlc, openInFileManager } from '../api/torrent';
 import { Input, Button, Toggle, Select, PageHeader, ConfirmDialog } from '../components/ui';
 import { EmptyState } from '../components';
 import { clearTmdbCache } from '../api/tmdb';
@@ -16,6 +17,7 @@ export function SettingsPage() {
   const [saved, setSaved] = useState(false);
   const [apiKey, setApiKey] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [appCachePath, setAppCachePath] = useState('');
 
   // Load from store on mount
   useEffect(() => {
@@ -23,6 +25,7 @@ export function SettingsPage() {
       setSettings(s);
       invoke('update_clear_streaming_setting', { value: s.clearStreamingOnExit }).catch(console.error);
     });
+    appDataDir().then(setAppCachePath).catch(console.error);
   }, []);
 
   const handleSave = async () => {
@@ -403,6 +406,33 @@ export function SettingsPage() {
               {cacheCleared ? 'Cleared!' : 'Clear'}
             </Button>
           </div>
+
+          {/* Cached Files Folder */}
+          {appCachePath && (
+            <div className="border-t border-zinc-800/60 pt-5 mt-5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-xl bg-zinc-800">
+                    <FolderOpen size={16} className="text-zinc-500" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-gray-200">Cached Files</p>
+                    <p className="text-xs text-zinc-500">
+                      App data directory containing cached metadata and torrent state.
+                    </p>
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={() => openInFileManager(appCachePath)}
+                className="mt-3 flex items-center gap-1.5 text-xs text-zinc-500 hover:text-zinc-300 transition-colors cursor-pointer"
+                title="Open in file manager"
+              >
+                <FolderOpen size={12} />
+                <span className="truncate font-mono">{appCachePath}</span>
+              </button>
+            </div>
+          )}
 
           {/* Reset Library */}
           <div className="border-t border-zinc-800/60 pt-5 mt-5">

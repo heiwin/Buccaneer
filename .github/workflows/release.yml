@@ -62,33 +62,18 @@ jobs:
       - uses: tauri-apps/tauri-action@1ddc7b49b13c3038297360482fcb3e058764d7c9 # v0.6.2
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: "0.9.5"
+          releaseName: "0.9.6"
           releaseBody: |
-            ## Buccaneer ${{ github.ref_name }}
+            ## Buccaneer v0.9.6
 
-            ### Security & Stability
-            - **VLC auth fix** — re-embedded credentials in stream URL to fix VLC auth prompt loop
-            - **Tightened Content-Security-Policy** — hardened security by removing unnecessary connect-src origin
-            - **TMDB cache bounded** — 200-entry LRU eviction cap
-            - **Streaming race condition fixed** — synchronous close prevents crashes on rapid start/stop
+            Minor bug fixes, minor new features.
 
-            ### Quality-of-Life
-            - **Notification bell** — bell icon on HomePage shows new episodes for favorited TV series; click navigates to the show
-            - **EZTV auto-routing** — episode searches from TV detail pages transparently use EZTV for accurate results, with automatic fallback to Knaben/APIBay
-            - **Source selector on DetailPage** — dropdown to switch search source (Knaben/APIBay/YTS/EZTV) directly from the torrent list
-            - **Episode-aware filtering** — season/episode pattern (s##e##) extracted from queries and applied across all search sources
-            - **Filters always visible** — quality/language/source filters remain visible even when no results are returned
-            - **Accurate download speed** — fixed bytes/s conversion (was using wrong multiplier)
-            - **Inline placeholder images** — external placehold.co replaced with SVG data URIs (works offline)
-            - **ConfirmDialogs repositioned** — moved outside scrollable sections to prevent visual overlap
-            - **Dynamic streaming region** — watch region loaded from settings instead of hardcoded `'IT'`
-
-            ### Bug Fixes
-            - **EZTV full pagination** — all EZTV result pages now fetched (previously capped at 3 pages), covering the entire show catalog
-            - **formatBytes overflow** — clamped to prevent display corruption on extreme values
-            - **VLC `--meta-title` argument** — fixed single-arg format
-            - **Deep link throttle** — 1s rate limit prevents rapid duplicate navigation
-            - Various minor fixes (StrictMode init, provider ID constants, modal overflow toggle, debounce cleanup, redundant imports, state catch-all, bounds validation)
+            ### Changes
+            - Fixed crash on app exit (null pointer dereference in ExitRequested handler)
+            - Added crash reporter — writes error logs and crash reports to `logs/` directory
+            - Added proper download time tracking — backend records `added_at` and `completed_at`
+            - Sort by time now uses backend timestamps instead of client-side only
+            - Renamed sort options: "Time added" → "Time Added", "Time finished" → "Time Completed"
 
             Download the appropriate asset for your platform:
             - **macOS (Intel)**: `.dmg` (x86_64)

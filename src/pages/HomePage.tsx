@@ -32,6 +32,12 @@ export function HomePage() {
 
   const { favorites } = useLibrary();
 
+  const handleAcknowledge = async () => {
+    await updateLastOpened();
+    setNewEpisodes([]);
+    setNewEpisodeCount(0);
+  };
+
   useEffect(() => {
     const tvFavorites = favorites.filter(f => f.mediaType === 'tv');
     if (tvFavorites.length === 0) return;
@@ -45,10 +51,7 @@ export function HomePage() {
         return;
       }
 
-      const episodes = await checkNewEpisodes(
-        tvFavorites.map(f => ({ id: f.id, title: f.title, posterPath: f.posterPath })),
-        lastOpened,
-      );
+      const episodes = await checkNewEpisodes(tvFavorites, lastOpened);
 
       if (!cancelled) {
         setNewEpisodes(episodes);
@@ -63,19 +66,30 @@ export function HomePage() {
 
   useEffect(() => {
     async function loadData() {
-      try {
-        const [moviesRes, tvRes] = await Promise.all([
-          getTrendingMovies(),
-          getTrendingTvSeries(),
-        ]);
-        setMovies(moviesRes.results || []);
-        setTvSeries(tvRes.results || []);
-      } catch (err: unknown) {
-        console.error(err);
-        setError('Failed to fetch trending data. Make sure the Tauri backend is running.');
-      } finally {
-        setLoading(false);
+      const [moviesRes, tvRes] = await Promise.allSettled([
+        getTrendingMovies(),
+        getTrendingTvSeries(),
+      ]);
+
+      if (moviesRes.status === 'fulfilled') {
+        setMovies(moviesRes.value.results || []);
       }
+      if (tvRes.status === 'fulfilled') {
+        setTvSeries(tvRes.value.results || []);
+      }
+
+      const errors: string[] = [];
+      if (moviesRes.status === 'rejected') {
+        errors.push(`Movies: ${moviesRes.reason}`);
+      }
+      if (tvRes.status === 'rejected') {
+        errors.push(`TV: ${tvRes.reason}`);
+      }
+      if (errors.length > 0) {
+        console.error('Trending fetch errors:', errors);
+        setError(`Failed to fetch trending data: ${errors.join('; ')}`);
+      }
+      setLoading(false);
     }
     loadData();
   }, []);
@@ -157,7 +171,7 @@ export function HomePage() {
               className="rounded-full"
             />
           </form>
-          <NotificationBell episodes={newEpisodes} count={newEpisodeCount} loading={false} />
+          <NotificationBell episodes={newEpisodes} count={newEpisodeCount} loading={false} onAcknowledge={handleAcknowledge} />
         </div>
       </PageHeader>
 

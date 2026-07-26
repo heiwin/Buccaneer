@@ -14,6 +14,8 @@ export interface TorrentInfo {
   error?: string;
   savePath: string;
   isStream: boolean;
+  addedAt: number;
+  completedAt: number | null;
 }
 
 export interface FileNode {
@@ -40,6 +42,8 @@ export interface ActiveTorrentItem {
   info_hash?: string;
   output_folder?: string;
   is_stream?: boolean;
+  added_at?: number;
+  completed_at?: number;
   stats?: {
     live?: {
       snapshot?: {
@@ -98,6 +102,8 @@ export async function getActiveTorrents(): Promise<TorrentInfo[]> {
       error: stats.error,
       savePath: t.output_folder || 'Unknown',
       isStream: t.is_stream || false,
+      addedAt: t.added_at ?? Date.now(),
+      completedAt: t.completed_at ?? null,
     };
   });
 }

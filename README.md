@@ -30,7 +30,7 @@
 
 - **Torrent Search** — Multi-source search with smart fallback between providers.
 - **Notification Bell** — Bell icon on HomePage shows new episodes for favorited TV series; click navigates directly to the show.
-- **Stream & Download** — Stream in VLC or download with pause/resume and file selection.
+- **Stream & Download** — Stream in VLC or download with pause/resume and per-file selection within multi-file torrents.
 - **TMDB Integration** — Trending, details, cast, trailers, ratings; full Discover by genre/year/platform.
 - **TV Seasons & Episodes** — Episode browser, mark watched, quick-search across torrent sources.
 - **Favorites & History** — Persistent library with watched tracking across sessions.
@@ -38,6 +38,8 @@
 - **Crash Recovery** — Auto-cleanup of orphaned streaming files on startup.
 - **Graceful Shutdown** — Confirms active downloads; optionally clears streamed files on exit.
 - **Deep Links** — `buccaneer://` protocol support.
+- **Auto-Updater** — In-app update checking with download progress bar and one-click install & restart.
+- **Download Notifications** — OS-level notification when a torrent finishes downloading.
 
 & much more.
 
@@ -95,7 +97,7 @@ Pre-built installers are available on the [releases page](https://github.com/hei
 
 1. **Backend-proxied network requests** — All TMDB and torrent API requests go through the Rust backend, not the frontend. This keeps API keys secure and allows server-side tracker filtering.
 
-2. **Embedded librqbit HTTP API** — librqbit runs an HTTP API on `127.0.0.1:3030` inside the app process. The frontend communicates with it via Tauri commands that internally use the librqbit Rust API.
+2. **Embedded librqbit HTTP API** — librqbit runs an HTTP API on `127.0.0.1` starting at port 3030, with automatic fallback up to 3049. The frontend communicates with it via Tauri commands that internally use the librqbit Rust API.
 
 3. **Multi-source search** — Searches are routed across multiple torrent sources with automatic fallback when a source returns no results.
 
@@ -107,7 +109,7 @@ Pre-built installers are available on the [releases page](https://github.com/hei
 
 7. **Persistent state via plugin-store** — Settings, favorites, and watched history are persisted via `@tauri-apps/plugin-store` as JSON files in the app data directory. Library state auto-saves with a 500 ms debounce.
 
-8. **Shared HTTP client** — A single `reqwest::Client` is reused across all backend HTTP requests for connection pooling and TLS session reuse.
+8. **Shared HTTP clients** — A `reqwest::Client` is reused across all TMDB and torrent API requests, with a separate client for the internal librqbit HTTP API. Both enable connection pooling and TLS session reuse.
 
 ---
 

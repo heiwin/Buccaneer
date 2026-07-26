@@ -1,5 +1,6 @@
 import { load, type Store } from '@tauri-apps/plugin-store';
 import { getTvDetails, getTvSeasonDetails } from './tmdb';
+import type { FavoriteItem } from './library';
 
 const NOTIFICATIONS_FILE = 'notifications.json';
 
@@ -37,45 +38,75 @@ export interface NewEpisode {
   airDate: string;
 }
 
-interface FavoriteInfo {
-  id: number;
-  title: string;
-  posterPath: string | null;
-}
-
 export async function checkNewEpisodes(
-  favorites: FavoriteInfo[],
+  favorites: FavoriteItem[],
   lastOpened: number,
 ): Promise<NewEpisode[]> {
+  const now = Date.now();
   const episodes: NewEpisode[] = [];
 
   const results = await Promise.allSettled(
     favorites.map(async (fav) => {
+      const threshold = Math.max(fav.addedAt, lastOpened);
       const details = await getTvDetails(fav.id);
-      const validSeasons = details.seasons?.filter(s => s.season_number > 0) ?? [];
-      if (validSeasons.length === 0) return [];
+      const showEpisodes: NewEpisode[] = [];
 
-      const latestSeason = validSeasons.reduce((a, b) =>
-        a.season_number > b.season_number ? a : b
-      );
+      // 1. Check the latest numbered season
+      const numberedSeasons = details.seasons?.filter(s => s.season_number > 0) ?? [];
+      if (numberedSeasons.length > 0) {
+        const latestSeason = numberedSeasons.reduce((a, b) =>
+          a.season_number > b.season_number ? a : b
+        );
 
-      if (!latestSeason.air_date) return [];
-      if (new Date(latestSeason.air_date).getTime() <= lastOpened) return [];
+        if (latestSeason.air_date) {
+          if (new Date(latestSeason.air_date).getTime() > threshold) {
+            const seasonDetails = await getTvSeasonDetails(fav.id, latestSeason.season_number);
+            if (seasonDetails.episodes) {
+              for (const ep of seasonDetails.episodes) {
+                if (ep.air_date) {
+                  const epAirDate = new Date(ep.air_date).getTime();
+                  if (epAirDate > threshold && epAirDate <= now) {
+                    showEpisodes.push({
+                      showId: fav.id,
+                      showName: fav.title,
+                      posterPath: fav.posterPath,
+                      seasonNumber: latestSeason.season_number,
+                      episodeNumber: ep.episode_number,
+                      episodeName: ep.name,
+                      airDate: ep.air_date,
+                    });
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
 
-      const seasonDetails = await getTvSeasonDetails(fav.id, latestSeason.season_number);
-      if (!seasonDetails.episodes) return [];
+      // 2. Check season 0 (specials) — no season-level air_date optimization
+      if (details.seasons?.some(s => s.season_number === 0)) {
+        const seasonZero = await getTvSeasonDetails(fav.id, 0);
+        if (seasonZero.episodes) {
+          for (const ep of seasonZero.episodes) {
+            if (ep.air_date) {
+              const epAirDate = new Date(ep.air_date).getTime();
+              if (epAirDate > threshold && epAirDate <= now) {
+                showEpisodes.push({
+                  showId: fav.id,
+                  showName: fav.title,
+                  posterPath: fav.posterPath,
+                  seasonNumber: 0,
+                  episodeNumber: ep.episode_number,
+                  episodeName: ep.name,
+                  airDate: ep.air_date,
+                });
+              }
+            }
+          }
+        }
+      }
 
-      return seasonDetails.episodes
-        .filter(ep => ep.air_date && new Date(ep.air_date).getTime() > lastOpened)
-        .map(ep => ({
-          showId: fav.id,
-          showName: fav.title,
-          posterPath: fav.posterPath,
-          seasonNumber: latestSeason.season_number,
-          episodeNumber: ep.episode_number,
-          episodeName: ep.name,
-          airDate: ep.air_date!,
-        }));
+      return showEpisodes;
     }),
   );
 

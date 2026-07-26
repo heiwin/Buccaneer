@@ -3,9 +3,14 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tauri::State;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::AtomicBool;
 use std::sync::Mutex;
+
+pub struct TorrentTimes {
+    pub added_at: i64,
+    pub completed_at: Option<i64>,
+}
 
 fn validate_magnet_or_url(input: &str) -> Result<(), String> {
     if input.starts_with("magnet:") {
@@ -38,6 +43,7 @@ pub struct TorrentState {
     pub api_credentials: String,
     pub api_port: u16,
     pub api_userpass: String,
+    pub torrent_times: Arc<Mutex<HashMap<usize, TorrentTimes>>>,
 }
 
 #[tauri::command]
@@ -186,6 +192,17 @@ pub async fn add_torrent(
         }
     }
 
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as i64;
+    if let Ok(mut times) = state.torrent_times.lock() {
+        times.entry(id).or_insert(TorrentTimes {
+            added_at: now,
+            completed_at: None,
+        });
+    }
+
     Ok(id.to_string())
 }
 
@@ -228,6 +245,9 @@ pub async fn remove_torrent(
     delete_files: bool,
 ) -> Result<(), String> {
     let parsed_id: usize = id.parse().map_err(|_| "Invalid ID".to_string())?;
+    if let Ok(mut times) = state.torrent_times.lock() {
+        times.remove(&parsed_id);
+    }
     state
         .session
         .delete(librqbit::api::TorrentIdOrHash::Id(parsed_id), delete_files)
@@ -295,16 +315,44 @@ pub async fn get_active_torrents(
             map
         });
         
-        // Now mutate the json outside the closure
-        for t in torrents.iter_mut() {
-            if let Some(id) = t.get("id").and_then(|id| id.as_u64()) {
-                let id_usize = id as usize;
-                let is_stream = streams.contains(&id_usize);
-                if let Some(obj) = t.as_object_mut() {
-                    obj.insert("is_stream".to_string(), serde_json::Value::Bool(is_stream));
-                    
-                    if let Some(stats_val) = stats_map.get(&id_usize) {
-                        obj.insert("stats".to_string(), stats_val.clone());
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as i64;
+
+        // Track completion times and populate response
+        if let Ok(mut times) = state.torrent_times.lock() {
+            for t in torrents.iter_mut() {
+                if let Some(id) = t.get("id").and_then(|id| id.as_u64()) {
+                    let id_usize = id as usize;
+                    let is_stream = streams.contains(&id_usize);
+                    if let Some(obj) = t.as_object_mut() {
+                        obj.insert("is_stream".to_string(), serde_json::Value::Bool(is_stream));
+
+                        if let Some(stats_val) = stats_map.get(&id_usize) {
+                            obj.insert("stats".to_string(), stats_val.clone());
+
+                            // Detect completion transition
+                            if let Some(finished) = stats_val.get("finished").and_then(|v| v.as_bool()) {
+                                if finished {
+                                    let entry = times.entry(id_usize).or_insert(TorrentTimes {
+                                        added_at: now,
+                                        completed_at: None,
+                                    });
+                                    if entry.completed_at.is_none() {
+                                        entry.completed_at = Some(now);
+                                    }
+                                }
+                            }
+                        }
+
+                        // Add timing to response
+                        if let Some(entry) = times.get(&id_usize) {
+                            obj.insert("added_at".to_string(), serde_json::Value::Number(serde_json::Number::from(entry.added_at)));
+                            if let Some(completed) = entry.completed_at {
+                                obj.insert("completed_at".to_string(), serde_json::Value::Number(serde_json::Number::from(completed)));
+                            }
+                        }
                     }
                 }
             }

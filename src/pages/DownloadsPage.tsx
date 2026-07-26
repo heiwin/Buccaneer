@@ -1,11 +1,12 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { HardDrive, Pause, Play, Trash2, X, FolderOpen } from 'lucide-react';
 import { getActiveTorrents, pauseTorrent, resumeTorrent, removeTorrent, getTorrentDetails, streamWithVlc, findBestVideoFileIndex, autoDetectVlc, openInFileManager, getApiPort, type TorrentInfo } from '../api/torrent';
 import { formatBytes } from '../api/knaben';
 import { loadSettings } from '../api/settings';
-import { Button, Badge, ConfirmDialog, PageHeader, ErrorBanner } from '../components/ui';
+import { Select, Button, Badge, ConfirmDialog, PageHeader, ErrorBanner } from '../components/ui';
+import type { SelectOption } from '../components/ui';
 import { EmptyState } from '../components';
 import { sendNotification } from '@tauri-apps/plugin-notification';
 
@@ -38,6 +39,7 @@ export function DownloadsPage() {
     deleteFiles: false,
   });
   const [vlcDialog, setVlcDialog] = useState<'not-found' | 'launch-error' | null>(null);
+  const [sortBy, setSortBy] = useState('time-added');
   const prevStatesRef = useRef<Map<string, string>>(new Map());
 
   useEffect(() => {
@@ -74,6 +76,33 @@ export function DownloadsPage() {
 
     return () => window.clearInterval(interval);
   }, [navigate]);
+
+  const sortOptions: SelectOption[] = [
+    { value: 'time-added', label: 'Time Added' },
+    { value: 'time-finished', label: 'Time Completed' },
+    { value: 'alphabetical', label: 'Alphabetically' },
+  ];
+
+  const sortedTorrents = useMemo(() => {
+    const list = [...torrents];
+    switch (sortBy) {
+      case 'time-added':
+        list.sort((a, b) => b.addedAt - a.addedAt);
+        break;
+      case 'time-finished':
+        list.sort((a, b) => {
+          if (a.completedAt && b.completedAt) return b.completedAt - a.completedAt;
+          if (a.completedAt) return -1;
+          if (b.completedAt) return 1;
+          return 0;
+        });
+        break;
+      case 'alphabetical':
+        list.sort((a, b) => a.name.localeCompare(b.name));
+        break;
+    }
+    return list;
+  }, [torrents, sortBy]);
 
   const handlePause = async (id: string) => {
     try {
@@ -135,7 +164,17 @@ export function DownloadsPage() {
 
   return (
     <div className="p-8">
-      <PageHeader icon={HardDrive} title="Active Downloads" className="mb-10" />
+      <div className="flex items-center justify-between mb-10">
+        <PageHeader icon={HardDrive} title="Active Downloads" className="mb-0" />
+        <Select
+          label="Sort by"
+          options={sortOptions}
+          value={sortBy}
+          onChange={(e) => setSortBy(e.target.value as string)}
+          size="sm"
+          className="w-44"
+        />
+      </div>
 
       {error && <ErrorBanner error={error} withIcon className="mb-6" />}
 
@@ -144,7 +183,7 @@ export function DownloadsPage() {
       )}
 
       <div className="space-y-4">
-        {torrents.map((t) => (
+        {sortedTorrents.map((t) => (
           <div key={t.id} className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5">
             <div className="flex items-start justify-between gap-4 mb-4">
               <div className="min-w-0 flex-1">

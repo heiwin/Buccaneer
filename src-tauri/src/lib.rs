@@ -6,6 +6,10 @@ use std::sync::Mutex;
 use base64::Engine;
 use tauri_plugin_dialog::DialogExt;
 
+// This API key is intentionally embedded in the binary. It's a free, rate-limited key
+// that only provides read-only access to TMDB's movie/TV database. Exposure is not a
+// security concern — there are no write permissions, quotas are per-IP, and the key
+// cannot be used for any privileged action.
 const DEFAULT_TMDB_API_KEY: &str = "90d235c4803793948cf3cd65a6867565";
 
 pub struct TmdbState {
@@ -39,6 +43,16 @@ macro_rules! tmdb_key {
     };
 }
 
+async fn tmdb_get(http_state: &HttpState, url: &str) -> Result<Value, String> {
+    let res = http_state.client.get(url).send().await.map_err(|e| format!("TMDB network error: {}", e))?;
+    let status = res.status();
+    if !status.is_success() {
+        let body = res.text().await.unwrap_or_default();
+        return Err(format!("TMDB error {}: {}", status.as_u16(), body));
+    }
+    res.json().await.map_err(|e| format!("TMDB parse error: {}", e))
+}
+
 #[tauri::command]
 async fn get_trending_movies(tmdb_state: tauri::State<'_, TmdbState>, http_state: tauri::State<'_, HttpState>) -> Result<Value, String> {
     let key = tmdb_key!(tmdb_state);
@@ -46,9 +60,7 @@ async fn get_trending_movies(tmdb_state: tauri::State<'_, TmdbState>, http_state
         "https://api.themoviedb.org/3/trending/movie/week?api_key={}",
         key
     );
-    let res = http_state.client.get(&url).send().await.map_err(|e| e.to_string())?;
-    let json: Value = res.json().await.map_err(|e| e.to_string())?;
-    Ok(json)
+    tmdb_get(&http_state, &url).await
 }
 
 #[tauri::command]
@@ -58,9 +70,7 @@ async fn get_trending_tv_series(tmdb_state: tauri::State<'_, TmdbState>, http_st
         "https://api.themoviedb.org/3/trending/tv/week?api_key={}",
         key
     );
-    let res = http_state.client.get(&url).send().await.map_err(|e| e.to_string())?;
-    let json: Value = res.json().await.map_err(|e| e.to_string())?;
-    Ok(json)
+    tmdb_get(&http_state, &url).await
 }
 
 #[tauri::command]
@@ -70,9 +80,7 @@ async fn get_movie_details(movie_id: u64, tmdb_state: tauri::State<'_, TmdbState
         "https://api.themoviedb.org/3/movie/{}?api_key={}&append_to_response=credits,videos",
         movie_id, key
     );
-    let res = http_state.client.get(&url).send().await.map_err(|e| e.to_string())?;
-    let json: Value = res.json().await.map_err(|e| e.to_string())?;
-    Ok(json)
+    tmdb_get(&http_state, &url).await
 }
 
 #[tauri::command]
@@ -82,9 +90,7 @@ async fn get_tv_details(tv_id: u64, tmdb_state: tauri::State<'_, TmdbState>, htt
         "https://api.themoviedb.org/3/tv/{}?api_key={}&append_to_response=credits,videos",
         tv_id, key
     );
-    let res = http_state.client.get(&url).send().await.map_err(|e| e.to_string())?;
-    let json: Value = res.json().await.map_err(|e| e.to_string())?;
-    Ok(json)
+    tmdb_get(&http_state, &url).await
 }
 
 #[tauri::command]
@@ -94,9 +100,7 @@ async fn get_tv_season_details(tv_id: u64, season_number: u32, tmdb_state: tauri
         "https://api.themoviedb.org/3/tv/{}/season/{}?api_key={}",
         tv_id, season_number, key
     );
-    let res = http_state.client.get(&url).send().await.map_err(|e| e.to_string())?;
-    let json: Value = res.json().await.map_err(|e| e.to_string())?;
-    Ok(json)
+    tmdb_get(&http_state, &url).await
 }
 
 // ─── TMDB Discover Command ────────────────────────────────────────────────────
@@ -146,9 +150,7 @@ async fn discover_media(
     if let Some(m) = &watch_monetization_types {
         url.push_str(&format!("&with_watch_monetization_types={}", m));
     }
-    let res = http_state.client.get(&url).send().await.map_err(|e| e.to_string())?;
-    let json: Value = res.json().await.map_err(|e| e.to_string())?;
-    Ok(json)
+    tmdb_get(&http_state, &url).await
 }
 
 // ─── TMDB Genre List ──────────────────────────────────────────────────────────
@@ -160,9 +162,7 @@ async fn get_genres(media_type: String, tmdb_state: tauri::State<'_, TmdbState>,
         "https://api.themoviedb.org/3/genre/{}/list?api_key={}",
         media_type, key
     );
-    let res = http_state.client.get(&url).send().await.map_err(|e| e.to_string())?;
-    let json: Value = res.json().await.map_err(|e| e.to_string())?;
-    Ok(json)
+    tmdb_get(&http_state, &url).await
 }
 
 // ─── TMDB Search Command ──────────────────────────────────────────────────────
@@ -175,8 +175,7 @@ async fn search_tmdb(query: String, tmdb_state: tauri::State<'_, TmdbState>, htt
         &[("api_key", &key), ("query", &query)],
     )
     .map_err(|e| e.to_string())?;
-    let res = http_state.client.get(url).send().await.map_err(|e| e.to_string())?;
-    let mut json: Value = res.json().await.map_err(|e| e.to_string())?;
+    let mut json: Value = tmdb_get(&http_state, url.as_str()).await?;
 
     // Filter out "person" results, keep only movie and tv
     if let Some(results) = json.get_mut("results").and_then(|r| r.as_array_mut()) {
@@ -648,6 +647,7 @@ async fn search_eztv(client: &Client, query: &str, api_key: &str) -> Result<Valu
 }
 
 
+pub mod crash_reporter;
 pub mod torrent;
 pub mod vlc;
 
@@ -687,6 +687,27 @@ fn open_in_file_manager(path: String) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+async fn delete_library_file(app: tauri::AppHandle) -> Result<(), String> {
+    let path = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {}", e))?
+        .join("library.json");
+
+    if path.exists() {
+        std::fs::remove_file(&path)
+            .map_err(|e| format!("Failed to delete library file: {}", e))?;
+    }
+
+    let bak = path.with_extension("json.bak");
+    if bak.exists() {
+        let _ = std::fs::remove_file(&bak);
+    }
+
+    Ok(())
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_deep_link::init())
@@ -713,6 +734,7 @@ pub fn run() {
             search_tmdb,
             search_torrents,
             open_in_file_manager,
+            delete_library_file,
             torrent::add_torrent,
             torrent::get_torrent_metadata,
             torrent::pause_torrent,
@@ -749,6 +771,13 @@ pub fn run() {
                         })
                         .build(),
                 )?;
+            }
+
+            // Initialize crash reporter (file logging, panic hook, crash marker)
+            if let Ok(app_data) = app.path().app_data_dir() {
+                crash_reporter::setup(app_data.clone());
+            } else {
+                log::warn!("Could not determine app data dir — crash reporter disabled");
             }
 
             // Initialize librqbit session
@@ -859,6 +888,9 @@ pub fn run() {
                         api_credentials: api_credentials.clone(),
                         api_port,
                         api_userpass: api_userpass.clone(),
+                        torrent_times: std::sync::Arc::new(std::sync::Mutex::new(
+                            std::collections::HashMap::new(),
+                        )),
                     });
 
                     // Clean up restored torrents whose output directory no longer exists
@@ -910,62 +942,48 @@ pub fn run() {
         .expect("error while building tauri application")
         .run(|app, event| {
             if let tauri::RunEvent::ExitRequested { api, .. } = event {
-                // Prevent immediate exit to allow cleanup to finish
-                api.prevent_exit();
-
-                let (session, stream_ids, clear_files, base_path) = {
-                    let state = app.state::<torrent::TorrentState>();
-                    let ids = if let Ok(streams) = state.streamed_torrents.lock() {
-                        streams.iter().copied().collect::<Vec<_>>()
-                    } else {
-                        vec![]
-                    };
-                    (
-                        state.session.clone(), 
-                        ids,
-                        state.clear_streaming_on_exit.load(std::sync::atomic::Ordering::Relaxed),
-                        state.base_path.lock().map(|b| b.clone()).unwrap_or_default(),
-                    )
+                let state = app.try_state::<torrent::TorrentState>();
+                let Some(state) = state else {
+                    log::info!("TorrentState not initialized, exiting directly.");
+                    return;
                 };
 
+                // Clean shutdown — remove the crash marker
+                crash_reporter::clear_marker();
+
+                let stream_ids = if let Ok(streams) = state.streamed_torrents.lock() {
+                    streams.iter().copied().collect::<Vec<_>>()
+                } else {
+                    vec![]
+                };
+                let clear_files = state.clear_streaming_on_exit.load(std::sync::atomic::Ordering::Relaxed);
+                let base_path = state.base_path.lock().map(|b| b.clone()).unwrap_or_default();
+
                 log::info!("Starting exit cleanup. Stream IDs: {:?}, Clear files: {}", stream_ids, clear_files);
-                
-                for id in stream_ids {
-                    let session_clone = session.clone();
-                    tauri::async_runtime::block_on(async move {
-                        let _ = session_clone
+
+                if stream_ids.is_empty() {
+                    if clear_files {
+                        let streaming_dir = std::path::Path::new(&base_path).join("Streaming");
+                        log::info!("Deleting streaming directory: {:?}", streaming_dir);
+                        let _ = std::fs::remove_dir_all(&streaming_dir);
+                    }
+                    log::info!("Cleanup finished.");
+                    // No streams to clean up — allow exit to proceed normally
+                    return;
+                }
+
+                api.prevent_exit();
+                let session = state.session.clone();
+                let handle = (*app).clone();
+                tauri::async_runtime::spawn(async move {
+                    for id in stream_ids {
+                        let _ = session
                             .delete(librqbit::api::TorrentIdOrHash::Id(id), clear_files)
                             .await;
-                    });
-                }
-
-                if clear_files {
-                    let streaming_dir = std::path::Path::new(&base_path).join("Streaming");
-                    log::info!("Deleting streaming directory: {:?}", streaming_dir);
-                    
-                    let mut retries = 5;
-                    let mut delay_ms = 200;
-                    loop {
-                        match std::fs::remove_dir_all(&streaming_dir) {
-                            Ok(_) => {
-                                log::info!("Successfully deleted streaming directory.");
-                                break;
-                            }
-                            Err(e) => {
-                                retries -= 1;
-                                if retries == 0 {
-                                    log::error!("Failed to delete streaming directory after 5 retries: {}", e);
-                                    break;
-                                }
-                                std::thread::sleep(std::time::Duration::from_millis(delay_ms));
-                                delay_ms *= 2;
-                            }
-                        }
                     }
-                }
-
-                log::info!("Cleanup finished.");
-                std::process::exit(0);
+                    log::info!("Streaming torrent cleanup done.");
+                    let _ = handle.exit(0);
+                });
             }
         });
 }
