@@ -36,14 +36,14 @@ let backupStore: Store | null = null;
 
 async function getMainStore(): Promise<Store> {
   if (!mainStore) {
-    mainStore = await load(MAIN_FILE, { autoSave: false });
-  }
-  return mainStore;
+    mainStore = await load(MAIN_FILE, { defaults: {}, autoSave: false });
+    }
+    return mainStore;
 }
 
 async function getBackupStore(): Promise<Store> {
   if (!backupStore) {
-    backupStore = await load(BACKUP_FILE, { autoSave: false });
+    backupStore = await load(BACKUP_FILE, { defaults: {}, autoSave: false });
   }
   return backupStore;
 }
