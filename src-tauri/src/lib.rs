@@ -44,13 +44,26 @@ macro_rules! tmdb_key {
 }
 
 async fn tmdb_get(http_state: &HttpState, url: &str) -> Result<Value, String> {
-    let res = http_state.client.get(url).send().await.map_err(|e| format!("TMDB network error: {}", e))?;
-    let status = res.status();
-    if !status.is_success() {
-        let body = res.text().await.unwrap_or_default();
-        return Err(format!("TMDB error {}: {}", status.as_u16(), body));
+    let mut last_err = String::new();
+    for attempt in 0..3 {
+        match http_state.client.get(url).send().await {
+            Ok(res) => {
+                let status = res.status();
+                if !status.is_success() {
+                    let body = res.text().await.unwrap_or_default();
+                    return Err(format!("TMDB error {}: {}", status.as_u16(), body));
+                }
+                return res.json().await.map_err(|e| format!("TMDB parse error: {}", e));
+            }
+            Err(e) => {
+                last_err = format!("TMDB network error: {}", e);
+                if attempt < 2 {
+                    tokio::time::sleep(std::time::Duration::from_millis(500 * (attempt + 1))).await;
+                }
+            }
+        }
     }
-    res.json().await.map_err(|e| format!("TMDB parse error: {}", e))
+    Err(last_err)
 }
 
 #[tauri::command]
