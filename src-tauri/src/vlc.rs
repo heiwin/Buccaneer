@@ -12,7 +12,6 @@ pub async fn auto_detect_vlc() -> Result<Option<String>, String> {
             }
         }
 
-        // Try `where vlc` (Windows equivalent of `which`)
         if let Ok(output) = std::process::Command::new("where").arg("vlc").output() {
             if output.status.success() {
                 let path = String::from_utf8_lossy(&output.stdout)
@@ -27,7 +26,6 @@ pub async fn auto_detect_vlc() -> Result<Option<String>, String> {
             }
         }
 
-        // Try Windows registry
         if let Ok(output) = std::process::Command::new("reg")
             .args(&[
                 "query",
@@ -63,7 +61,6 @@ pub async fn auto_detect_vlc() -> Result<Option<String>, String> {
 
     #[cfg(target_os = "linux")]
     {
-        // Check well-known VLC installation paths first
         let known_paths = vec![
             "/usr/bin/vlc",
             "/snap/bin/vlc",
@@ -74,7 +71,6 @@ pub async fn auto_detect_vlc() -> Result<Option<String>, String> {
                 return Ok(Some(p.to_string()));
             }
         }
-        // Fallback to `which vlc`
         if let Ok(output) = std::process::Command::new("which").arg("vlc").output() {
             if output.status.success() {
                 let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -96,9 +92,9 @@ pub async fn stream_with_vlc(
     title: Option<String>,
     state: tauri::State<'_, crate::torrent::TorrentState>,
 ) -> Result<(), String> {
+    let _ = &title; // received but unused — VLC reads metadata from the stream
     let executable = vlc_path.unwrap_or_else(|| "vlc".to_string());
 
-    // Validate that the VLC path exists and looks like a VLC executable
     if executable != "vlc" {
         let path = std::path::Path::new(&executable);
         if !path.exists() {
@@ -127,36 +123,47 @@ pub async fn stream_with_vlc(
         }
     }
 
-    // Construct stream URL using stored credentials (never exposed on CLI)
     let stream_url = format!(
-        "http://{}/torrents/{}/stream/{}",
-        state.api_userpass, torrent_id, file_index
+        "http://{}@127.0.0.1:{}/torrents/{}/stream/{}",
+        state.api_userpass, state.api_port, torrent_id, file_index
     );
-
-    // Write URL to a temporary M3U file to avoid exposing credentials in process listing
-    let mut tmp = std::env::temp_dir();
-    tmp.push(format!("buccaneer_{}.m3u", torrent_id));
-    let tmp_path = tmp.to_string_lossy().to_string();
-    let m3u_content = format!("#EXTM3U\n{}\n", stream_url);
-    std::fs::write(&tmp_path, &m3u_content)
-        .map_err(|e| format!("Failed to create temp playlist: {}", e))?;
 
     let mut cmd = std::process::Command::new(&executable);
     cmd.arg("--network-caching=10000");
-    if let Some(t) = &title {
-        let sanitized: String = t.chars()
-            .filter(|c| c.is_alphanumeric() || c.is_ascii_punctuation() || c.is_whitespace())
-            .collect();
-        cmd.arg(format!("--meta-title={}", sanitized));
-    }
     cmd.arg("--");
-    cmd.arg(&tmp_path);
+    cmd.arg(&stream_url);
 
     cmd.spawn()
         .map_err(|e| format!("Failed to launch VLC at '{}': {}", executable, e))?;
 
-    // Clean up temp file — VLC has already read it by now
-    let _ = std::fs::remove_file(&tmp_path);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn open_in_vlc(
+    file_path: String,
+    vlc_path: Option<String>,
+) -> Result<(), String> {
+    let executable = vlc_path.unwrap_or_else(|| "vlc".to_string());
+
+    if executable != "vlc" {
+        let path = std::path::Path::new(&executable);
+        if !path.exists() {
+            return Err(format!("VLC not found at '{}'", executable));
+        }
+    }
+
+    let full_path = std::path::Path::new(&file_path);
+    if !full_path.exists() {
+        return Err(format!("File not found at '{}'", file_path));
+    }
+
+    let mut cmd = std::process::Command::new(&executable);
+    cmd.arg("--");
+    cmd.arg(&file_path);
+
+    cmd.spawn()
+        .map_err(|e| format!("Failed to launch VLC at '{}': {}", executable, e))?;
 
     Ok(())
 }

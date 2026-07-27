@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { HardDrive, MonitorPlay, ChevronDown, ChevronUp, Loader2 } from 'lucide-react';
 import type { TorrentResult } from '../types/knaben';
-import { addTorrent, getTorrentDetails, streamWithVlc, findBestVideoFileIndex, autoDetectVlc, getActiveTorrents, pauseTorrent } from '../api/torrent';
+import { addTorrent, getTorrentDetails, openInVlc, findBestVideoFileIndex, autoDetectVlc, getActiveTorrents, pauseTorrent } from '../api/torrent';
 import { loadSettings } from '../api/settings';
 import { useNavigate } from 'react-router-dom';
 import { Modal, Button, ConfirmDialog } from './ui';
@@ -64,19 +64,36 @@ export function TorrentActionMenu({ torrent, onClose, hideFileSelection }: Torre
       await new Promise((r) => setTimeout(r, 1000));
       const onlyFiles = getOnlyFilesArgs();
       let fileIndex = onlyFiles && onlyFiles.length > 0 ? onlyFiles[0] : 0;
-      let title: string | undefined;
       try {
         const details = await getTorrentDetails(id);
         if (details.files && details.files.length > 0) {
           if (!onlyFiles || onlyFiles.length === 0) {
             fileIndex = findBestVideoFileIndex(details.files, torrent.title);
           }
-          if (details.files[fileIndex]?.name) {
-            title = details.files[fileIndex].name;
-          }
         }
-      } catch { /* fallback */ }
-      await streamWithVlc(id, fileIndex, settings.vlcPath || null, title);
+        const outputFolder = details.output_folder as string | undefined;
+        const fileName = details.files?.[fileIndex]?.name;
+        if (!outputFolder || !fileName) {
+          throw new Error('Could not determine file path');
+        }
+        // Wait until at least 4% is downloaded so VLC can play immediately
+        const deadline = Date.now() + 30_000;
+        while (Date.now() < deadline) {
+          const torrents = await getActiveTorrents();
+          const t = torrents.find((t) => t.id === id);
+          if (t && t.progress >= 0.04) break;
+          await new Promise((r) => setTimeout(r, 500));
+        }
+        await openInVlc(`${outputFolder}/${fileName}`, settings.vlcPath || null);
+      } catch (e) {
+        console.error(e instanceof Error ? e.message : String(e));
+        const detected = await autoDetectVlc();
+        if (!detected && (!settings || !settings.vlcPath)) {
+          setVlcDialog('not-found');
+        } else {
+          setVlcDialog('launch-error');
+        }
+      }
       onClose();
       navigate('/downloads');
     } catch (e: unknown) {

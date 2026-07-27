@@ -74,10 +74,10 @@ Pre-built installers are available on the [releases page](https://github.com/hei
 
 | OS                     | Download                                                                                                                      |
 | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| **macOS** (Apple Silicon) | [`Buccaneer_0.9.8_aarch64.dmg`](https://github.com/heiwin/Buccaneer/releases/download/v0.9.8/Buccaneer_0.9.8_aarch64.dmg) |
-| **macOS** (Intel Mac)     | [`Buccaneer_0.9.8_x64.dmg`](https://github.com/heiwin/Buccaneer/releases/download/v0.9.8/Buccaneer_0.9.8_x64.dmg)          |
-| **Windows**               | [`Buccaneer_0.9.8_x64_en-US.msi`](https://github.com/heiwin/Buccaneer/releases/download/v0.9.8/Buccaneer_0.9.8_x64_en-US.msi) |
-| **Linux**                 | [`Buccaneer_0.9.8_amd64.AppImage`](https://github.com/heiwin/Buccaneer/releases/download/v0.9.8/Buccaneer_0.9.8_amd64.AppImage) · [`Buccaneer_0.9.8_amd64.deb`](https://github.com/heiwin/Buccaneer/releases/download/v0.9.8/Buccaneer_0.9.8_amd64.deb) |
+| **macOS** (Apple Silicon) | [`Buccaneer_0.9.9_aarch64.dmg`](https://github.com/heiwin/Buccaneer/releases/download/v0.9.9/Buccaneer_0.9.9_aarch64.dmg) |
+| **macOS** (Intel Mac)     | [`Buccaneer_0.9.9_x64.dmg`](https://github.com/heiwin/Buccaneer/releases/download/v0.9.9/Buccaneer_0.9.9_x64.dmg)          |
+| **Windows**               | [`Buccaneer_0.9.9_x64_en-US.msi`](https://github.com/heiwin/Buccaneer/releases/download/v0.9.9/Buccaneer_0.9.9_x64_en-US.msi) |
+| **Linux**                 | [`Buccaneer_0.9.9_amd64.AppImage`](https://github.com/heiwin/Buccaneer/releases/download/v0.9.9/Buccaneer_0.9.9_amd64.AppImage) · [`Buccaneer_0.9.9_amd64.deb`](https://github.com/heiwin/Buccaneer/releases/download/v0.9.9/Buccaneer_0.9.9_amd64.deb) |
 
 > **⚠️ macOS Unverified Developer Notice**
 >
@@ -103,7 +103,7 @@ Pre-built installers are available on the [releases page](https://github.com/hei
 
 4. **In-memory TMDB cache** — TMDB responses are cached for 10 minutes using a simple in-memory Map. This prevents redundant API calls and improves perceived performance.
 
-5. **Streaming via VLC** — Rather than building a custom video player, Buccaneer hands off streaming URLs to VLC. This avoids complex transcoding and supports a wide range of formats (MKV, AVI, etc.) with advanced audio codec support.
+5. **Streaming via VLC** — Rather than building a custom video player, Buccaneer opens downloaded or in-progress files directly in VLC. This avoids complex transcoding, supports a wide range of formats (MKV, AVI, etc.) with native metadata and audio codec support.
 
 6. **Graceful exit** — On close, the app checks for active torrents and prompts the user. On forced exit, it cleans up streaming files (unless disabled in settings). librqbit's persistence saves torrent state to disk so ongoing downloads resume after restart.
 

@@ -120,6 +120,10 @@ export async function streamWithVlc(id: string, fileIndex: number, vlcPath: stri
   return await invoke('stream_with_vlc', { torrentId: id, fileIndex, vlcPath, title: title || null });
 }
 
+export async function openInVlc(filePath: string, vlcPath: string | null): Promise<void> {
+  return await invoke('open_in_vlc', { filePath, vlcPath });
+}
+
 export interface TorrentDetailsResponse {
   name?: string;
   files?: { name: string; length: number }[];

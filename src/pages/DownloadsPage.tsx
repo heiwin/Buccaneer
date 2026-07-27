@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { HardDrive, Pause, Play, Trash2, X, FolderOpen } from 'lucide-react';
-import { getActiveTorrents, pauseTorrent, resumeTorrent, removeTorrent, getTorrentDetails, streamWithVlc, findBestVideoFileIndex, autoDetectVlc, openInFileManager, type TorrentInfo } from '../api/torrent';
+import { getActiveTorrents, pauseTorrent, resumeTorrent, removeTorrent, getTorrentDetails, openInVlc, findBestVideoFileIndex, autoDetectVlc, openInFileManager, type TorrentInfo } from '../api/torrent';
 import { formatBytes } from '../api/knaben';
 import { loadSettings, saveSettings } from '../api/settings';
 import { Select, Button, Badge, ConfirmDialog, PageHeader, ErrorBanner } from '../components/ui';
@@ -183,8 +183,13 @@ export function DownloadsPage() {
       const fileIdx = data.files && data.files.length > 0
         ? findBestVideoFileIndex(data.files, data.name || '')
         : 0;
+      const fileName = data.files?.[fileIdx]?.name;
+      const outputFolder = data.output_folder as string | undefined;
 
-      await streamWithVlc(id, fileIdx, settings.vlcPath || null);
+      if (!outputFolder || !fileName) {
+        throw new Error('Could not determine file path');
+      }
+      await openInVlc(`${outputFolder}/${fileName}`, settings.vlcPath || null);
     } catch (e: unknown) {
       console.error(e instanceof Error ? e.message : String(e));
       const settings = await loadSettings();
@@ -203,14 +208,16 @@ export function DownloadsPage() {
     <div className="p-8">
       <div className="flex items-center justify-between mb-10">
         <PageHeader icon={HardDrive} title="Active Downloads" className="mb-0" />
-        <Select
-          label="Sort by"
-          options={sortOptions}
-          value={sortBy}
-          onChange={(e) => setSortBy(e.target.value as string)}
-          size="sm"
-          className="w-44"
-        />
+        <div className="flex items-center gap-3">
+          <span className="text-[10px] text-gray-400 font-black uppercase tracking-widest whitespace-nowrap">Sort by</span>
+          <Select
+            options={sortOptions}
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as string)}
+            size="sm"
+            className="w-44"
+          />
+        </div>
       </div>
 
       {error && <ErrorBanner error={error} withIcon className="mb-6" />}
