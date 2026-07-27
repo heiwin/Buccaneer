@@ -131,7 +131,7 @@ export function DetailPage({ mediaType }: DetailPageProps) {
   };
 
   const handleMarkSeasonWatched = () => {
-    if (!seasonDetails || isMovie(details) || selectedSeason === null) return;
+    if (!seasonDetails || !details || isMovie(details) || selectedSeason === null) return;
     const allWatched = seasonDetails.episodes.every((ep) => {
       const epKey = watchedKeyEpisode(details.id, selectedSeason!, ep.episode_number);
       return isWatched(epKey);
