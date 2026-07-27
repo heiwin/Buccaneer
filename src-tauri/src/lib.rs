@@ -387,7 +387,22 @@ async fn search_apibay(client: &Client, query: &str) -> Result<Value, String> {
         .await
         .map_err(|e| format!("apibay error: {}", e))?;
 
-    let items: Vec<Value> = res.json().await.map_err(|e| format!("apibay parse: {}", e))?;
+    let status = res.status();
+    let text = res.text().await.map_err(|e| format!("apibay read error: {}", e))?;
+
+    let items: Vec<Value> = serde_json::from_str(&text).map_err(|_| {
+        if !status.is_success() {
+            format!("apibay returned HTTP {}: {}", status.as_u16(), text.chars().take(150).collect::<String>())
+        } else if let Ok(obj) = serde_json::from_str::<Value>(&text) {
+            if let Some(err) = obj.get("error").and_then(|e| e.as_str()) {
+                format!("apibay error: {}", err)
+            } else {
+                format!("apibay: unexpected response (HTTP {})", status.as_u16())
+            }
+        } else {
+            format!("apibay parse: expected JSON array, got: {}", text.chars().take(150).collect::<String>())
+        }
+    })?;
 
     let mut hits: Vec<Value> = items
         .into_iter()
@@ -413,8 +428,17 @@ async fn search_apibay(client: &Client, query: &str) -> Result<Value, String> {
                 .unwrap_or(0);
             let category = item["category"].as_str().unwrap_or("0").to_string();
 
+            // Sanitize name: remove control characters, truncate to 200 chars
+            let sanitized_name: String = name
+                .chars()
+                .filter(|c| !c.is_control() && !c.is_ascii_control())
+                .collect::<String>()
+                .chars()
+                .take(200)
+                .collect();
+
             let magnet_url = if !info_hash.is_empty() {
-                format!("magnet:?xt=urn:btih:{}&dn={}", info_hash, urlencoding::encode(&name))
+                format!("magnet:?xt=urn:btih:{}&dn={}", info_hash, urlencoding::encode(&sanitized_name))
             } else {
                 String::new()
             };
@@ -760,7 +784,6 @@ pub fn run() {
             torrent::update_clear_streaming_setting,
             torrent::update_ratelimits,
             torrent::set_download_path,
-            torrent::get_api_port,
         ])
         .setup(|app| {
             #[cfg(desktop)]
@@ -841,13 +864,7 @@ pub fn run() {
 
                     // Generate random credentials for internal API calls
                     let username = "buccaneer";
-                    let password = format!("{}-{}",
-                        std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_nanos(),
-                        std::process::id()
-                    );
+                    let password = uuid::Uuid::new_v4().to_string();
                     let api_userpass = format!("{}:{}", username, password);
                     let api_credentials = format!("Basic {}", base64::engine::general_purpose::STANDARD.encode(&api_userpass));
 

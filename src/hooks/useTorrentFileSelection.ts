@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { getTorrentMetadata, type FileNode } from '../api/torrent';
 
 export interface UseTorrentFileSelectionReturn {
@@ -6,7 +6,7 @@ export interface UseTorrentFileSelectionReturn {
   selectedFiles: Set<number>;
   loading: boolean;
   error: string | null;
-  fetchFiles: (magnetUrl: string) => Promise<void>;
+  fetchFiles: (magnetUrl: string, force?: boolean) => Promise<void>;
   toggleFile: (index: number) => void;
   toggleAll: () => void;
 }
@@ -16,11 +16,15 @@ export function useTorrentFileSelection(): UseTorrentFileSelectionReturn {
   const [selectedFiles, setSelectedFiles] = useState<Set<number>>(new Set());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const currentIdRef = useRef<string | null>(null);
 
-  const fetchFiles = async (magnetUrl: string) => {
-    if (files.length > 0) return; // already fetched, skip
+  const fetchFiles = async (magnetUrl: string, force?: boolean) => {
+    if (!force && files.length > 0 && currentIdRef.current === magnetUrl) return;
+    currentIdRef.current = magnetUrl;
     setLoading(true);
     setError(null);
+    setFiles([]);
+    setSelectedFiles(new Set());
     try {
       const metadata = await getTorrentMetadata(magnetUrl);
       setFiles(metadata);

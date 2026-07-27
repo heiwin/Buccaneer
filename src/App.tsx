@@ -20,7 +20,7 @@ const FavoritesPage = lazy(() => import('./pages/FavoritesPage').then(m => ({ de
 function App() {
   const navigate = useNavigate();
   const [closeDialogOpen, setCloseDialogOpen] = useState(false);
-  const closeEventRef = useRef<{ preventDefault: () => void } | null>(null);
+  const closeRequestedRef = useRef(false);
 
   useEffect(() => {
     loadSettings().then((s) => {
@@ -61,7 +61,7 @@ function App() {
 
         if (activeDownloads.length > 0) {
           event.preventDefault();
-          closeEventRef.current = event;
+          closeRequestedRef.current = true;
           setCloseDialogOpen(true);
         }
       } catch (err: unknown) {
@@ -77,13 +77,13 @@ function App() {
 
   const handleConfirmClose = useCallback(() => {
     setCloseDialogOpen(false);
-    closeEventRef.current = null;
+    closeRequestedRef.current = false;
     getCurrentWindow().destroy();
   }, []);
 
   const handleCancelClose = useCallback(() => {
     setCloseDialogOpen(false);
-    closeEventRef.current = null;
+    closeRequestedRef.current = false;
   }, []);
 
   return (

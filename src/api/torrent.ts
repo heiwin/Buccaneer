@@ -47,7 +47,7 @@ export interface ActiveTorrentItem {
   stats?: {
     live?: {
       snapshot?: {
-        peer_stats?: { live?: number };
+        peer_stats?: { live?: number; connecting?: number; queued?: number; seen?: number; dead?: number };
       };
       download_speed?: { mbps?: number };
       upload_speed?: { mbps?: number };
@@ -97,7 +97,7 @@ export async function getActiveTorrents(): Promise<TorrentInfo[]> {
       downloadSpeed: live.download_speed?.mbps ? live.download_speed.mbps * 1024 * 1024 : 0,
       uploadSpeed: live.upload_speed?.mbps ? live.upload_speed.mbps * 1024 * 1024 : 0,
       seeds: peerStats.live || 0,
-      peers: peerStats.live || 0,
+      peers: Math.max(0, (peerStats.seen || 0) - (peerStats.live || 0)),
       state: stateStr as TorrentInfo['state'],
       error: stats.error,
       savePath: t.output_folder || 'Unknown',
@@ -116,8 +116,8 @@ export async function autoDetectVlc(): Promise<string | null> {
   return await invoke('auto_detect_vlc');
 }
 
-export async function streamWithVlc(streamUrl: string, vlcPath: string | null, title?: string): Promise<void> {
-  return await invoke('stream_with_vlc', { streamUrl, vlcPath, title: title || null });
+export async function streamWithVlc(id: string, fileIndex: number, vlcPath: string | null, title?: string): Promise<void> {
+  return await invoke('stream_with_vlc', { torrentId: id, fileIndex, vlcPath, title: title || null });
 }
 
 export interface TorrentDetailsResponse {
@@ -190,11 +190,4 @@ export async function getTorrentMetadata(magnetOrUrl: string): Promise<FileNode[
   return await invoke('get_torrent_metadata', { magnetOrUrl });
 }
 
-let apiConnection: { port: number; userpass: string } | null = null;
 
-export async function getApiPort(): Promise<{ port: number; userpass: string }> {
-  if (apiConnection === null) {
-    apiConnection = await invoke<{ port: number; userpass: string }>('get_api_port');
-  }
-  return apiConnection;
-}

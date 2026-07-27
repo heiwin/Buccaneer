@@ -2,18 +2,17 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { HardDrive, Pause, Play, Trash2, X, FolderOpen } from 'lucide-react';
-import { getActiveTorrents, pauseTorrent, resumeTorrent, removeTorrent, getTorrentDetails, streamWithVlc, findBestVideoFileIndex, autoDetectVlc, openInFileManager, getApiPort, type TorrentInfo } from '../api/torrent';
+import { getActiveTorrents, pauseTorrent, resumeTorrent, removeTorrent, getTorrentDetails, streamWithVlc, findBestVideoFileIndex, autoDetectVlc, openInFileManager, type TorrentInfo } from '../api/torrent';
 import { formatBytes } from '../api/knaben';
-import { loadSettings } from '../api/settings';
+import { loadSettings, saveSettings } from '../api/settings';
 import { Select, Button, Badge, ConfirmDialog, PageHeader, ErrorBanner } from '../components/ui';
-import type { SelectOption } from '../components/ui';
 import { EmptyState } from '../components';
 import { sendNotification } from '@tauri-apps/plugin-notification';
 
 
 
 function formatEta(seconds: number): string {
-  if (seconds <= 0 || !isFinite(seconds)) return '—';
+  if (seconds <= 0 || !isFinite(seconds) || isNaN(seconds)) return '—';
   if (seconds < 60) return '<1m';
   if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${Math.floor(seconds % 60)}s`;
   const h = Math.floor(seconds / 3600);
@@ -41,11 +40,39 @@ export function DownloadsPage() {
   const [vlcDialog, setVlcDialog] = useState<'not-found' | 'launch-error' | null>(null);
   const [sortBy, setSortBy] = useState('time-added');
   const prevStatesRef = useRef<Map<string, string>>(new Map());
+  const sortInitialized = useRef(false);
+  const errorCountRef = useRef(0);
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
+    loadSettings().then((s) => {
+      setSortBy(s.downloadsSortBy);
+      sortInitialized.current = true;
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!sortInitialized.current) return;
+    const timer = setTimeout(() => {
+      loadSettings().then((s) => saveSettings({ ...s, downloadsSortBy: sortBy }));
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [sortBy]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const MAX_BACKOFF_MS = 30000;
+
+    const scheduleNext = (delayMs: number) => {
+      pollIntervalRef.current = window.setTimeout(() => {
+        if (!cancelled) fetchTorrents();
+      }, delayMs);
+    };
+
     const fetchTorrents = async () => {
       try {
         const data = await getActiveTorrents();
+        if (cancelled) return;
         const prev = prevStatesRef.current;
 
         for (const t of data) {
@@ -64,20 +91,30 @@ export function DownloadsPage() {
         prevStatesRef.current = new Map(data.map((t) => [t.id, t.state]));
         setTorrents(data);
         setError(null);
+        errorCountRef.current = 0;
+        if (!cancelled) scheduleNext(2000);
       } catch (err: unknown) {
+        if (cancelled) return;
         setError(err instanceof Error ? err.message : String(err));
+        errorCountRef.current += 1;
+        const backoff = Math.min(2000 * Math.pow(2, errorCountRef.current - 1), MAX_BACKOFF_MS);
+        if (!cancelled) scheduleNext(backoff);
       } finally {
         setLoading(false);
       }
     };
 
     fetchTorrents();
-    const interval = window.setInterval(fetchTorrents, 2000);
 
-    return () => window.clearInterval(interval);
+    return () => {
+      cancelled = true;
+      if (pollIntervalRef.current !== null) {
+        window.clearTimeout(pollIntervalRef.current);
+      }
+    };
   }, [navigate]);
 
-  const sortOptions: SelectOption[] = [
+  const sortOptions = [
     { value: 'time-added', label: 'Time Added' },
     { value: 'time-finished', label: 'Time Completed' },
     { value: 'alphabetical', label: 'Alphabetically' },
@@ -129,6 +166,8 @@ export function DownloadsPage() {
       await removeTorrent(confirmState.torrentId, confirmState.deleteFiles);
     } catch (e: unknown) {
       console.error('Failed to remove torrent:', e instanceof Error ? e.message : String(e));
+    } finally {
+      setConfirmState(s => ({ ...s, isOpen: false }));
     }
   };
 
@@ -145,9 +184,7 @@ export function DownloadsPage() {
         ? findBestVideoFileIndex(data.files, data.name || '')
         : 0;
 
-      const { port, userpass } = await getApiPort();
-      const streamUrl = `http://${userpass}@127.0.0.1:${port}/torrents/${id}/stream/${fileIdx}`;
-      await streamWithVlc(streamUrl, settings.vlcPath || null);
+      await streamWithVlc(id, fileIdx, settings.vlcPath || null);
     } catch (e: unknown) {
       console.error(e instanceof Error ? e.message : String(e));
       const settings = await loadSettings();
@@ -197,8 +234,12 @@ export function DownloadsPage() {
                 </div>
                 <div className="flex flex-wrap gap-x-4 gap-y-2 text-xs text-zinc-500">
                   <span>{t.state}</span>
+                  {t.state === 'error' && t.error && (
+                    <span className="text-rose-400 font-bold" title={t.error}>{t.error}</span>
+                  )}
                   <span>{formatBytes(t.downloadSpeed)}/s DL</span>
                   <span>{formatBytes(t.uploadSpeed)}/s UL</span>
+                  <span>{t.seeds} seeds</span>
                   <span>{t.peers} peers</span>
                 </div>
               </div>
@@ -275,7 +316,7 @@ export function DownloadsPage() {
             ? 'Are you sure you want to delete the downloaded files? This action cannot be undone.'
             : 'Are you sure you want to cancel this download? The torrent will be removed but files will be kept.'
         }
-        confirmLabel={confirmState.deleteFiles ? 'Delete' : 'Cancel Download'}
+        confirmLabel={confirmState.deleteFiles ? 'Delete Files' : 'Remove Download'}
         kind={confirmState.deleteFiles ? 'danger' : 'warning'}
       />
 

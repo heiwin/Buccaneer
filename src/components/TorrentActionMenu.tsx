@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { HardDrive, MonitorPlay, ChevronDown, ChevronUp, Loader2 } from 'lucide-react';
 import type { TorrentResult } from '../types/knaben';
-import { addTorrent, getTorrentDetails, streamWithVlc, findBestVideoFileIndex, autoDetectVlc, getActiveTorrents, pauseTorrent, getApiPort } from '../api/torrent';
+import { addTorrent, getTorrentDetails, streamWithVlc, findBestVideoFileIndex, autoDetectVlc, getActiveTorrents, pauseTorrent } from '../api/torrent';
 import { loadSettings } from '../api/settings';
 import { useNavigate } from 'react-router-dom';
 import { Modal, Button, ConfirmDialog } from './ui';
@@ -76,9 +76,7 @@ export function TorrentActionMenu({ torrent, onClose, hideFileSelection }: Torre
           }
         }
       } catch { /* fallback */ }
-      const { port, userpass } = await getApiPort();
-      const streamUrl = `http://${userpass}@127.0.0.1:${port}/torrents/${id}/stream/${fileIndex}`;
-      await streamWithVlc(streamUrl, settings.vlcPath || null, title);
+      await streamWithVlc(id, fileIndex, settings.vlcPath || null, title);
       onClose();
       navigate('/downloads');
     } catch (e: unknown) {

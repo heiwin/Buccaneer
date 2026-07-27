@@ -18,8 +18,8 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
         <div className="relative group w-full">
           <textarea
             className={cn(
-              "flex min-h-[80px] w-full rounded-xl bg-white dark:bg-zinc-800 border border-gray-100 dark:border-zinc-700 p-4 text-sm font-bold placeholder:text-gray-300 dark:placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-blue-500/50 dark:focus:ring-blue-500/30 transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-50",
-              error && "border-rose-300 focus:ring-rose-500/50 dark:border-rose-900/50 dark:focus:ring-rose-500/30",
+              "flex min-h-[80px] w-full rounded-xl bg-zinc-800 border border-zinc-700 p-4 text-sm font-bold placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-blue-500/30 transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-50",
+              error && "border-rose-900/50 focus:ring-rose-500/30",
               className
             )}
             ref={ref}

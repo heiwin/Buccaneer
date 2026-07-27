@@ -12,6 +12,68 @@ pub struct TorrentTimes {
     pub completed_at: Option<i64>,
 }
 
+#[derive(Serialize)]
+pub struct SpeedStats {
+    pub mbps: f64,
+}
+
+#[derive(Serialize)]
+pub struct PeerStats {
+    pub live: usize,
+    pub connecting: usize,
+    pub queued: usize,
+    pub seen: usize,
+    pub dead: usize,
+}
+
+#[derive(Serialize)]
+pub struct LiveSnapshot {
+    pub peer_stats: PeerStats,
+}
+
+#[derive(Serialize)]
+pub struct LiveStats {
+    pub download_speed: SpeedStats,
+    pub upload_speed: SpeedStats,
+    pub snapshot: LiveSnapshot,
+}
+
+#[derive(Serialize)]
+pub struct TorrentStats {
+    pub state: String,
+    pub progress_bytes: u64,
+    pub total_bytes: u64,
+    pub finished: bool,
+    pub error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub live: Option<LiveStats>,
+}
+
+impl From<&librqbit::TorrentStats> for TorrentStats {
+    fn from(s: &librqbit::TorrentStats) -> Self {
+        Self {
+            state: s.state.to_string(),
+            progress_bytes: s.progress_bytes,
+            total_bytes: s.total_bytes,
+            finished: s.finished,
+            error: s.error.clone(),
+            live: s.live.as_ref().map(|live| LiveStats {
+                download_speed: SpeedStats { mbps: live.download_speed.mbps },
+                upload_speed: SpeedStats { mbps: live.upload_speed.mbps },
+                snapshot: LiveSnapshot {
+                    peer_stats: PeerStats {
+                        live: live.snapshot.peer_stats.live,
+                        connecting: live.snapshot.peer_stats.connecting,
+                        queued: live.snapshot.peer_stats.queued,
+                        seen: live.snapshot.peer_stats.seen,
+                        dead: live.snapshot.peer_stats.dead,
+                    },
+                },
+            }),
+        }
+    }
+}
+
 fn validate_magnet_or_url(input: &str) -> Result<(), String> {
     if input.starts_with("magnet:") {
         if !input.contains("xt=urn:btih:") {
@@ -121,21 +183,6 @@ pub async fn update_ratelimits(
         .map_err(|e| e.to_string())?;
 
     Ok(())
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-pub struct TorrentInfo {
-    pub id: String,
-    pub name: String,
-    pub progress: f64,
-    pub download_speed: u64,
-    pub upload_speed: u64,
-    pub seeds: u32,
-    pub peers: u32,
-    pub state: String,
-    pub error: Option<String>,
-    pub save_path: String,
-    pub is_stream: bool,
 }
 
 #[tauri::command]
@@ -278,39 +325,10 @@ pub async fn get_active_torrents(
         
         // We need to fetch stats internally since the HTTP /torrents endpoint omits them
         let stats_map = state.session.with_torrents(|internal_torrents| {
-            let mut map = std::collections::HashMap::new();
+            let mut map = HashMap::new();
             for (id, handle) in internal_torrents {
-                let stats = handle.stats();
-                
-                // Manually construct the stats JSON to match what torrent.ts expects
-                let mut stats_json = serde_json::Map::new();
-                stats_json.insert("state".to_string(), serde_json::Value::String(stats.state.to_string()));
-                stats_json.insert("progress_bytes".to_string(), serde_json::Value::Number(serde_json::Number::from(stats.progress_bytes)));
-                stats_json.insert("total_bytes".to_string(), serde_json::Value::Number(serde_json::Number::from(stats.total_bytes)));
-                stats_json.insert("finished".to_string(), serde_json::Value::Bool(stats.finished));
-                if let Some(err) = &stats.error {
-                    stats_json.insert("error".to_string(), serde_json::Value::String(err.clone()));
-                }
-                
-                let mut live_json = serde_json::Map::new();
-                if let Some(live) = &stats.live {
-                    let mut download_speed = serde_json::Map::new();
-                    download_speed.insert("mbps".to_string(), serde_json::Value::Number(serde_json::Number::from_f64(live.download_speed.mbps).unwrap_or(serde_json::Number::from(0))));
-                    live_json.insert("download_speed".to_string(), serde_json::Value::Object(download_speed));
-                    
-                    let mut upload_speed = serde_json::Map::new();
-                    upload_speed.insert("mbps".to_string(), serde_json::Value::Number(serde_json::Number::from_f64(live.upload_speed.mbps).unwrap_or(serde_json::Number::from(0))));
-                    live_json.insert("upload_speed".to_string(), serde_json::Value::Object(upload_speed));
-                    
-                    let mut snapshot = serde_json::Map::new();
-                    let mut peer_stats = serde_json::Map::new();
-                    peer_stats.insert("live".to_string(), serde_json::Value::Number(serde_json::Number::from(live.snapshot.peer_stats.live)));
-                    snapshot.insert("peer_stats".to_string(), serde_json::Value::Object(peer_stats));
-                    live_json.insert("snapshot".to_string(), serde_json::Value::Object(snapshot));
-                }
-                stats_json.insert("live".to_string(), serde_json::Value::Object(live_json));
-                
-                map.insert(id, serde_json::Value::Object(stats_json));
+                let stats = TorrentStats::from(&handle.stats());
+                map.insert(id, serde_json::to_value(stats).unwrap_or_default());
             }
             map
         });
@@ -424,16 +442,4 @@ pub async fn get_torrent_metadata(
     }
 }
 
-#[derive(Serialize)]
-pub struct ApiConnection {
-    pub port: u16,
-    pub userpass: String,
-}
 
-#[tauri::command]
-pub async fn get_api_port(state: State<'_, TorrentState>) -> Result<ApiConnection, String> {
-    Ok(ApiConnection {
-        port: state.api_port,
-        userpass: state.api_userpass.clone(),
-    })
-}

@@ -1,4 +1,4 @@
-import React, { useId, useState, useRef, useEffect, type ReactElement } from 'react';
+import { useId, useState, useRef, useEffect } from 'react';
 import { ChevronsUpDown, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '@/lib/utils';
@@ -19,8 +19,7 @@ interface SelectProps extends Omit<React.ComponentPropsWithoutRef<'button'>, 'va
   error?: string;
   icon?: React.ReactNode;
   options?: (SelectOption | SelectGroup)[];
-  children?: React.ReactNode;
-  value?: string | string[]; 
+  value?: string | string[];
   onChange?: (event: {
     target: { value: string | string[]; name?: string };
     currentTarget: { value: string | string[]; name?: string };
@@ -76,36 +75,8 @@ export const Select: React.FC<SelectProps> = ({
     });
   }
 
-  // 2. Process children if no options provided
-  if (!providedOptions && children) {
-    React.Children.forEach(children, (child) => {
-      if (React.isValidElement(child)) {
-        const element = child as ReactElement<{ value?: string | number, children?: React.ReactNode }>;
-        if (element.type === 'option') {
-          const opt = {
-            value: element.props.value?.toString() || '',
-            label: element.props.children?.toString() || '',
-          };
-          groupedStructure.push(opt);
-          flatOptions.push(opt);
-        } else if (element.type === React.Fragment) {
-          React.Children.forEach(element.props.children, (nestedChild) => {
-            if (React.isValidElement(nestedChild)) {
-              const nestedElement = nestedChild as ReactElement<{ value?: string | number, children?: React.ReactNode }>;
-              if (nestedElement.type === 'option') {
-                const opt = {
-                  value: nestedElement.props.value?.toString() || '',
-                  label: nestedElement.props.children?.toString() || '',
-                };
-                groupedStructure.push(opt);
-                flatOptions.push(opt);
-              }
-            }
-          });
-        }
-      }
-    });
-  }
+  // Children-based option parsing is intentionally removed.
+  // Use the `options` prop exclusively for type safety.
 
   // Handle selected label(s)
   const isSelected = (val: string) => {
@@ -189,7 +160,7 @@ export const Select: React.FC<SelectProps> = ({
             initial={{ scale: 0.5, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
           >
-            <Check className="w-3.5 h-3.5 stroke-[3px] text-blue-600 dark:text-blue-400" />
+            <Check className="w-3.5 h-3.5 stroke-[3px] text-blue-400" />
           </motion.div>
         )}
       </button>

@@ -50,7 +50,7 @@ export function DetailPage({ mediaType }: DetailPageProps) {
   const [source, setSource] = useState('knaben');
   
   const torrentSectionRef = useRef<HTMLDivElement>(null);
-  const episodeSearchRef = useRef(false);
+  const episodeSearchOverrideRef = useRef<TorrentResult[] | null>(null);
 
   // TV Specific state
   const [selectedSeason, setSelectedSeason] = useState<number | null>(null);
@@ -98,20 +98,26 @@ export function DetailPage({ mediaType }: DetailPageProps) {
 
   // Fetch torrents when query or filters change
   useEffect(() => {
+    let cancelled = false;
     if (!searchQuery) return;
-    if (episodeSearchRef.current) {
-      episodeSearchRef.current = false;
+
+    const override = episodeSearchOverrideRef.current;
+    if (override !== null) {
+      episodeSearchOverrideRef.current = null;
+      setTorrentsLoading(false);
+      setTorrents(override);
       return;
     }
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+
     setTorrentsLoading(true);
     setTorrentsError(null);
     const finalQuery = buildSearchQuery(searchQuery, qualityFilter, languageFilter);
     const tvId = mediaType === 'tv' && id ? Number(id) : null;
     searchTorrents(finalQuery, mediaType, source, tvId)
-      .then((res) => setTorrents(res.hits || []))
-      .catch((e: unknown) => setTorrentsError(e instanceof Error ? e.message : String(e)))
-      .finally(() => setTorrentsLoading(false));
+      .then((res) => { if (!cancelled) setTorrents(res.hits || []); })
+      .catch((e: unknown) => { if (!cancelled) setTorrentsError(e instanceof Error ? e.message : String(e)); })
+      .finally(() => { if (!cancelled) setTorrentsLoading(false); });
+    return () => { cancelled = true; };
   }, [searchQuery, qualityFilter, languageFilter, mediaType, source]);
 
   // Helpers for TV searches
@@ -144,10 +150,8 @@ export function DetailPage({ mediaType }: DetailPageProps) {
     const finalQuery1 = buildSearchQuery(query1, qualityFilter, languageFilter);
     const finalQuery2 = buildSearchQuery(query2, qualityFilter, languageFilter);
 
-    episodeSearchRef.current = true;
     setSearchQuery(query1);
     setSource('knaben');
-
     setTorrentsLoading(true);
     setTorrentsError(null);
 
@@ -165,7 +169,7 @@ export function DetailPage({ mediaType }: DetailPageProps) {
         return true;
       });
 
-      setTorrents(merged);
+      episodeSearchOverrideRef.current = merged;
     } catch (e: unknown) {
       setTorrentsError(e instanceof Error ? e.message : String(e));
     } finally {

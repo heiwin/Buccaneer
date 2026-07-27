@@ -13,6 +13,7 @@ export type AppSettings = {
   streamingRegion: string;
   streamingProviders: number[];
   notificationsEnabled: boolean;
+  downloadsSortBy: string;
 };
 
 export const DEFAULTS: AppSettings = {
@@ -26,6 +27,7 @@ export const DEFAULTS: AppSettings = {
   streamingRegion: 'IT',
   streamingProviders: [350],
   notificationsEnabled: true,
+  downloadsSortBy: 'time-added',
 };
 
 let storeInstance: Store | null = null;

@@ -77,27 +77,15 @@ export const TorrentList: React.FC<TorrentListProps> = ({
       )}
 
       {/* Error */}
-      {!loading && error && <ErrorBanner error={error} withIcon />}
+      {!loading && error && (
+        <div className="mb-4">
+          <ErrorBanner error={error} withIcon />
+        </div>
+      )}
 
-      {/* Filters */}
-      {!loading && !error && (
+      {/* Filters — Source always visible so user can escape a failing source */}
+      {!loading && (
         <div className="flex flex-wrap gap-4 mb-4">
-          <Select
-            label="Quality"
-            options={QUALITY_OPTIONS}
-            value={qualityFilter}
-            onChange={(e) => setQualityFilter(e.target.value as string)}
-            size="sm"
-            className="w-32"
-          />
-          <Select
-            label="Language"
-            options={LANGUAGE_OPTIONS}
-            value={languageFilter}
-            onChange={(e) => setLanguageFilter(e.target.value as string)}
-            size="sm"
-            className="w-40"
-          />
           <Select
             label="Source"
             options={SOURCE_OPTIONS}
@@ -106,6 +94,26 @@ export const TorrentList: React.FC<TorrentListProps> = ({
             size="sm"
             className="w-48"
           />
+          {!error && results.length > 0 && (
+            <>
+              <Select
+                label="Quality"
+                options={QUALITY_OPTIONS}
+                value={qualityFilter}
+                onChange={(e) => setQualityFilter(e.target.value as string)}
+                size="sm"
+                className="w-32"
+              />
+              <Select
+                label="Language"
+                options={LANGUAGE_OPTIONS}
+                value={languageFilter}
+                onChange={(e) => setLanguageFilter(e.target.value as string)}
+                size="sm"
+                className="w-40"
+              />
+            </>
+          )}
         </div>
       )}
 

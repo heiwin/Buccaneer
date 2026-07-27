@@ -3,7 +3,7 @@ import { cn } from '@/lib/utils';
 
 const Table = React.forwardRef<HTMLTableElement, React.HTMLAttributes<HTMLTableElement>>(
   ({ className, ...props }, ref) => (
-    <div className="w-full bg-white dark:bg-zinc-900 rounded-[40px] border border-gray-100 dark:border-zinc-800 shadow-sm overflow-hidden">
+    <div className="w-full bg-zinc-900 rounded-[40px] border border-zinc-800 shadow-sm overflow-hidden">
       <table
         ref={ref}
         className={cn("w-full text-left border-collapse", className)}
@@ -25,7 +25,7 @@ const TableBody = React.forwardRef<HTMLTableSectionElement, React.HTMLAttributes
   ({ className, ...props }, ref) => (
     <tbody
       ref={ref}
-      className={cn("divide-y divide-gray-50 dark:divide-zinc-800", className)}
+      className={cn("divide-y divide-zinc-800", className)}
       {...props}
     />
   )

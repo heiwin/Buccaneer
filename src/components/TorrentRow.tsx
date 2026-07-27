@@ -62,6 +62,7 @@ export function TorrentRow({ torrent, onSelect }: TorrentRowProps) {
               size="icon"
               onClick={handleExpand}
               disabled={loading}
+              aria-label={expanded ? 'Collapse file list' : 'Expand file list'}
               className="text-zinc-500 hover:text-white disabled:opacity-100 disabled:hover:text-zinc-500"
             >
               {loading ? (

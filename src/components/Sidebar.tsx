@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { NavLink } from 'react-router-dom';
 import { Home, Compass, Search, Settings, HardDrive, Heart, Download, RefreshCw, CheckCircle2, AlertCircle } from 'lucide-react';
 import appIcon from '../assets/icon.png';
@@ -35,29 +35,64 @@ function NavItem({ to, icon, label }: NavItemProps) {
 export function Sidebar() {
   const [updateState, setUpdateState] = useState<UpdateState>({ status: 'checking' });
   const [currentVersion, setCurrentVersion] = useState<string>('');
+  const updateStateRef = useRef(updateState);
+  const cancelledRef = useRef(false);
 
   useEffect(() => {
+    updateStateRef.current = updateState;
+  });
+
+  useEffect(() => {
+    cancelledRef.current = false;
+
+    const check = (force = false) => {
+      if (cancelledRef.current) return;
+      const s = updateStateRef.current;
+      if (!force && s.status !== 'idle' && s.status !== 'error') return;
+      setUpdateState({ status: 'checking' });
+      checkForUpdate()
+        .then((update) => {
+          if (cancelledRef.current) return;
+          if (update) {
+            setUpdateState({ status: 'available', update });
+            setCurrentVersion(update.currentVersion);
+          } else {
+            setUpdateState({ status: 'idle' });
+          }
+        })
+        .catch((err) => {
+          if (cancelledRef.current) return;
+          setUpdateState({ status: 'error', message: err instanceof Error ? err.message : String(err) });
+        });
+    };
+
     getVersion().then(setCurrentVersion).catch(() => {});
-    checkForUpdate()
-      .then((update) => {
-        if (update) {
-          setUpdateState({ status: 'available', update });
-          setCurrentVersion(update.currentVersion);
-        } else {
-          setUpdateState({ status: 'idle' });
-        }
-      })
-      .catch(() => {
-        setUpdateState({ status: 'idle' });
-      });
+    check(true);
+
+    const interval = setInterval(() => check(), 6 * 60 * 60 * 1000);
+
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible' && !cancelledRef.current) check();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+
+    return () => {
+      cancelledRef.current = true;
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+    // checkForUpdate, getVersion, setUpdateState, setCurrentVersion are stable
+    // (module-level imports and useState setters) — safe to omit.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleDownload = useCallback(async () => {
-    const state = updateState;
+    const state = updateStateRef.current;
     if (state.status !== 'available') return;
     const { update } = state;
     try {
       await update.download((event) => {
+        if (cancelledRef.current) return;
         switch (event.event) {
           case 'Started':
             setUpdateState({
@@ -77,17 +112,19 @@ export function Sidebar() {
             break;
           }
           case 'Finished':
+            if (cancelledRef.current) return;
             setUpdateState({ status: 'downloaded', update });
             break;
         }
       });
     } catch (e: unknown) {
+      if (cancelledRef.current) return;
       setUpdateState({ status: 'error', message: e instanceof Error ? e.message : 'Download failed' });
     }
-  }, [updateState]);
+  }, []);
 
   const handleInstall = useCallback(async () => {
-    const state = updateState;
+    const state = updateStateRef.current;
     if (state.status !== 'downloaded') return;
     try {
       setUpdateState({ status: 'installing' });
@@ -96,22 +133,22 @@ export function Sidebar() {
     } catch (e: unknown) {
       setUpdateState({ status: 'error', message: e instanceof Error ? e.message : 'Install failed' });
     }
-  }, [updateState]);
+  }, []);
 
-  const handleRetry = useCallback(() => {
+  const handleRetry = useCallback(async () => {
+    cancelledRef.current = false;
     setUpdateState({ status: 'checking' });
-    checkForUpdate()
-      .then((update) => {
-        if (update) {
-          setUpdateState({ status: 'available', update });
-          setCurrentVersion(update.currentVersion);
-        } else {
-          setUpdateState({ status: 'idle' });
-        }
-      })
-      .catch(() => {
-        setUpdateState({ status: 'error', message: 'Failed to check for updates' });
-      });
+    try {
+      const update = await checkForUpdate();
+      if (update) {
+        setUpdateState({ status: 'available', update });
+        setCurrentVersion(update.currentVersion);
+      } else {
+        setUpdateState({ status: 'idle' });
+      }
+    } catch (err) {
+      setUpdateState({ status: 'error', message: err instanceof Error ? err.message : String(err) });
+    }
   }, []);
 
   const renderUpdateBanner = () => {

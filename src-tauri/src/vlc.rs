@@ -90,9 +90,11 @@ pub async fn auto_detect_vlc() -> Result<Option<String>, String> {
 
 #[tauri::command]
 pub async fn stream_with_vlc(
-    stream_url: String,
+    torrent_id: String,
+    file_index: u32,
     vlc_path: Option<String>,
     title: Option<String>,
+    state: tauri::State<'_, crate::torrent::TorrentState>,
 ) -> Result<(), String> {
     let executable = vlc_path.unwrap_or_else(|| "vlc".to_string());
 
@@ -104,9 +106,8 @@ pub async fn stream_with_vlc(
         }
         #[cfg(target_os = "macos")]
         {
-            // Require the binary filename to be exactly "VLC"
             let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-            if file_name != "VLC" {
+            if file_name != "VLC" && file_name.to_lowercase() != "vlc" {
                 return Err(format!("'{}' does not appear to be a valid VLC path", executable));
             }
         }
@@ -116,7 +117,6 @@ pub async fn stream_with_vlc(
         }
         #[cfg(target_os = "linux")]
         {
-            // Verify the binary is actually VLC by checking --version output
             let output = std::process::Command::new(&executable)
                 .arg("--version")
                 .output()
@@ -127,17 +127,19 @@ pub async fn stream_with_vlc(
         }
     }
 
-    // Validate stream_url — must be a local librqbit HTTP stream URL
-    let parsed_url = reqwest::Url::parse(&stream_url)
-        .map_err(|_| "Invalid stream URL: must be a valid HTTP URL".to_string())?;
+    // Construct stream URL using stored credentials (never exposed on CLI)
+    let stream_url = format!(
+        "http://{}/torrents/{}/stream/{}",
+        state.api_userpass, torrent_id, file_index
+    );
 
-    let allowed_host = parsed_url.host_str().unwrap_or("");
-    if allowed_host != "127.0.0.1" && allowed_host != "localhost" {
-        return Err("Stream URL must point to localhost (127.0.0.1)".to_string());
-    }
-    if parsed_url.scheme() != "http" {
-        return Err("Stream URL must use HTTP scheme".to_string());
-    }
+    // Write URL to a temporary M3U file to avoid exposing credentials in process listing
+    let mut tmp = std::env::temp_dir();
+    tmp.push(format!("buccaneer_{}.m3u", torrent_id));
+    let tmp_path = tmp.to_string_lossy().to_string();
+    let m3u_content = format!("#EXTM3U\n{}\n", stream_url);
+    std::fs::write(&tmp_path, &m3u_content)
+        .map_err(|e| format!("Failed to create temp playlist: {}", e))?;
 
     let mut cmd = std::process::Command::new(&executable);
     cmd.arg("--network-caching=10000");
@@ -147,12 +149,14 @@ pub async fn stream_with_vlc(
             .collect();
         cmd.arg(format!("--meta-title={}", sanitized));
     }
-    // Use "--" to separate options from positional arguments
     cmd.arg("--");
-    cmd.arg(&stream_url);
+    cmd.arg(&tmp_path);
 
     cmd.spawn()
         .map_err(|e| format!("Failed to launch VLC at '{}': {}", executable, e))?;
+
+    // Clean up temp file — VLC has already read it by now
+    let _ = std::fs::remove_file(&tmp_path);
 
     Ok(())
 }

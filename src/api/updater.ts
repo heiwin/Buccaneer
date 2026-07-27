@@ -12,6 +12,10 @@ export type UpdateState =
 
 export type { Update } from '@tauri-apps/plugin-updater';
 
-export async function checkForUpdate(): Promise<Update | null> {
-  return check();
+export async function checkForUpdate(timeoutMs = 10000): Promise<Update | null> {
+  const result = await Promise.race([
+    check(),
+    new Promise<null>(resolve => setTimeout(() => resolve(null), timeoutMs)),
+  ]);
+  return result;
 }

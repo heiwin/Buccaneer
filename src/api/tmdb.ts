@@ -10,15 +10,6 @@ const cache = new Map<string, CacheEntry<unknown>>();
 const CACHE_DURATION = 10 * 60 * 1000; // 10 minutes
 const MAX_CACHE_SIZE = 200;
 
-function evictExpired(): void {
-  const now = Date.now();
-  for (const [key, entry] of cache) {
-    if (now - entry.timestamp >= CACHE_DURATION) {
-      cache.delete(key);
-    }
-  }
-}
-
 export function clearTmdbCache(): void {
   cache.clear();
 }
@@ -32,9 +23,23 @@ async function cachedInvoke<T>(cmd: string, args?: Record<string, unknown>): Pro
     return cached.data as T;
   }
 
-  // Evict stale entries if cache is getting large
+  // Trim cache when at capacity: remove expired entries, or oldest entry if all fresh
   if (cache.size >= MAX_CACHE_SIZE) {
-    evictExpired();
+    let oldestKey: string | null = null;
+    let oldestTime = Infinity;
+    let removedAny = false;
+    for (const [k, entry] of cache) {
+      if (now - entry.timestamp >= CACHE_DURATION) {
+        cache.delete(k);
+        removedAny = true;
+      } else if (entry.timestamp < oldestTime) {
+        oldestTime = entry.timestamp;
+        oldestKey = k;
+      }
+    }
+    if (!removedAny && oldestKey !== null) {
+      cache.delete(oldestKey);
+    }
   }
 
   const data = await invoke<T>(cmd, args);

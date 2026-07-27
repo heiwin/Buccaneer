@@ -152,7 +152,7 @@ pub fn setup(app_data_dir: PathBuf) {
             file: Mutex::new(file),
         };
         let _ = log::set_boxed_logger(Box::new(logger));
-        log::set_max_level(log::LevelFilter::Warn);
+        log::set_max_level(log::LevelFilter::Info);
     }
 
     // Panic hook

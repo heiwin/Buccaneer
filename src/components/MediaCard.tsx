@@ -71,6 +71,7 @@ export const MediaCard: React.FC<MediaCardProps> = ({
           variant="ghost"
           size="icon"
           onClick={handleToggleFavorite}
+          aria-label={favorite ? 'Remove from favorites' : 'Add to favorites'}
           className={`p-1.5 backdrop-blur-sm transition-colors ${
             favorite
               ? 'bg-white/20 text-white'
@@ -83,6 +84,7 @@ export const MediaCard: React.FC<MediaCardProps> = ({
           variant="ghost"
           size="icon"
           onClick={handleToggleWatched}
+          aria-label={watched ? 'Mark as unwatched' : 'Mark as watched'}
           className={`p-1.5 backdrop-blur-sm transition-colors ${
             watched
               ? 'bg-white/20 text-white'

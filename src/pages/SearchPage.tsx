@@ -37,6 +37,7 @@ export function SearchPage() {
   }, [initialQuery]);
 
   useEffect(() => {
+    let cancelled = false;
     if (!query.trim()) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setResults([]);
@@ -48,18 +49,12 @@ export function SearchPage() {
 
     const finalQuery = buildSearchQuery(query, qualityFilter, languageFilter);
 
-    const fetchResults = async () => {
-      try {
-        const res = await searchTorrents(finalQuery, null, source);
-        setResults(res.hits || []);
-      } catch (e: unknown) {
-        setError(e instanceof Error ? e.message : String(e));
-      } finally {
-        setLoading(false);
-      }
-    };
+    searchTorrents(finalQuery, null, source)
+      .then((res) => { if (!cancelled) setResults(res.hits || []); })
+      .catch((e: unknown) => { if (!cancelled) setError(e instanceof Error ? e.message : String(e)); })
+      .finally(() => { if (!cancelled) setLoading(false); });
     
-    fetchResults();
+    return () => { cancelled = true; };
   }, [query, qualityFilter, languageFilter, source]);
 
   const handleSubmit = (e: React.FormEvent) => {

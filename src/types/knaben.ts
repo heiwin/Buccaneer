@@ -37,14 +37,4 @@ export interface KnabenResponse {
   hits: TorrentResult[];
 }
 
-export interface KnabenSearchRequest {
-  search_type: string;
-  search_field: string;
-  query: string;
-  order_by: string;
-  order_direction: string;
-  from: number;
-  size: number;
-  hide_unsafe: boolean;
-  hide_xxx: boolean;
-}
+

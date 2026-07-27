@@ -558,7 +558,7 @@ dependencies = [
 
 [[package]]
 name = "buccaneer"
-version = "0.9.7"
+version = "0.9.8"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -580,6 +580,7 @@ dependencies = [
  "tauri-plugin-updater",
  "tokio",
  "urlencoding",
+ "uuid",
 ]
 
 [[package]]

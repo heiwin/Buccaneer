@@ -88,10 +88,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
           <Button
             variant={config.confirmVariant}
             className={hideCancel ? "w-full" : "flex-1"}
-            onClick={() => {
-              onConfirm();
-              onClose();
-            }}
+            onClick={onConfirm}
             disabled={loading}
           >
             {loading ? 'Processing…' : confirmLabel}
