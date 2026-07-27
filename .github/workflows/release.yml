@@ -62,15 +62,8 @@ jobs:
       - uses: tauri-apps/tauri-action@1ddc7b49b13c3038297360482fcb3e058764d7c9 # v0.6.2
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: "0.9.7"
+          releaseName: ${{ github.ref_name }}
           releaseBody: |
-            ## Buccaneer v0.9.7
-
-            Hotfix release.
-
-            ### Changes
-            - Filtered librqbit noise from file logger — `buccaneer.log` no longer fills up with internal librqbit ERROR messages
-
             Download the appropriate asset for your platform:
             - **macOS (Intel)**: `.dmg` (x86_64)
             - **macOS (Apple Silicon)**: `.dmg` (aarch64)
