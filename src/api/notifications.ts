@@ -58,24 +58,24 @@ export async function checkNewEpisodes(
           a.season_number > b.season_number ? a : b
         );
 
-        if (latestSeason.air_date) {
-          if (new Date(latestSeason.air_date).getTime() > threshold) {
-            const seasonDetails = await getTvSeasonDetails(fav.id, latestSeason.season_number);
-            if (seasonDetails.episodes) {
-              for (const ep of seasonDetails.episodes) {
-                if (ep.air_date) {
-                  const epAirDate = new Date(ep.air_date).getTime();
-                  if (epAirDate > threshold && epAirDate <= now) {
-                    showEpisodes.push({
-                      showId: fav.id,
-                      showName: fav.title,
-                      posterPath: fav.posterPath,
-                      seasonNumber: latestSeason.season_number,
-                      episodeNumber: ep.episode_number,
-                      episodeName: ep.name,
-                      airDate: ep.air_date,
-                    });
-                  }
+        const seasonStart = latestSeason.air_date ? new Date(latestSeason.air_date).getTime() : 0;
+        const estimatedEnd = seasonStart + latestSeason.episode_count * 7 * 24 * 60 * 60 * 1000;
+        if (seasonStart === 0 || estimatedEnd > threshold) {
+          const seasonDetails = await getTvSeasonDetails(fav.id, latestSeason.season_number);
+          if (seasonDetails.episodes) {
+            for (const ep of seasonDetails.episodes) {
+              if (ep.air_date) {
+                const epAirDate = new Date(ep.air_date).getTime();
+                if (epAirDate > threshold && epAirDate <= now) {
+                  showEpisodes.push({
+                    showId: fav.id,
+                    showName: fav.title,
+                    posterPath: fav.posterPath,
+                    seasonNumber: latestSeason.season_number,
+                    episodeNumber: ep.episode_number,
+                    episodeName: ep.name,
+                    airDate: ep.air_date,
+                  });
                 }
               }
             }

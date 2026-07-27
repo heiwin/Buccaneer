@@ -130,6 +130,18 @@ export function DetailPage({ mediaType }: DetailPageProps) {
     torrentSectionRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
+  const handleMarkSeasonWatched = () => {
+    if (!seasonDetails || isMovie(details) || selectedSeason === null) return;
+    const allWatched = seasonDetails.episodes.every((ep) => {
+      const epKey = watchedKeyEpisode(details.id, selectedSeason!, ep.episode_number);
+      return isWatched(epKey);
+    });
+    seasonDetails.episodes.forEach((ep) => {
+      const epKey = watchedKeyEpisode(details.id, selectedSeason!, ep.episode_number);
+      if (allWatched ? isWatched(epKey) : !isWatched(epKey)) toggleWatched(epKey);
+    });
+  };
+
   const handleSearchEpisode = async (episodeNumber: number) => {
     if (!details || isMovie(details) || selectedSeason === null) return;
 
@@ -204,6 +216,17 @@ export function DetailPage({ mediaType }: DetailPageProps) {
   const rating    = details.vote_average;
   const genres    = details.genres;
   const cast      = details.credits?.cast.slice(0, 10) ?? [];
+  const crew      = details.credits?.crew ?? [];
+  const director  = crew.find((m) => m.job === 'Director');
+  const writers   = crew.filter((m) => m.job && ['Writer', 'Screenplay', 'Story', 'Teleplay'].includes(m.job));
+  const tvDetails = !isMovie(details) ? (details as TvDetails) : null;
+  const createdBy  = tvDetails?.created_by ?? null;
+  const networks   = tvDetails?.networks ?? [];
+  const inProduction = tvDetails?.in_production;
+  const tvStatus   = tvDetails?.status;
+  const certification = isMovie(details)
+    ? details.release_dates?.results?.find((r) => r.iso_3166_1 === 'US')?.release_dates?.[0]?.certification
+    : (details as TvDetails).content_ratings?.results?.find((r) => r.iso_3166_1 === 'US')?.rating;
   const trailer   = details.videos?.results.find(
     (v) => v.site === 'YouTube' && v.type === 'Trailer'
   );
@@ -283,7 +306,35 @@ export function DetailPage({ mediaType }: DetailPageProps) {
             </div>
 
             {tagline && (
-              <p className="text-zinc-400 italic text-sm mb-4">{tagline}</p>
+              <p className="text-zinc-400 italic text-sm mb-2">{tagline}</p>
+            )}
+
+            {/* Director, Writers & Created By */}
+            {(director || writers.length > 0 || createdBy) && (
+              <p className="text-xs text-zinc-500 mb-2 space-x-1">
+                {director && (
+                  <span>Director: <span className="text-zinc-300">{director.name}</span></span>
+                )}
+                {director && writers.length > 0 && <span className="text-zinc-700 mx-1">•</span>}
+                {writers.length > 0 && (
+                  <span>Writer{writers.length > 1 ? 's' : ''}: <span className="text-zinc-300">{writers.map((w) => w.name).join(', ')}</span></span>
+                )}
+                {createdBy && (director || writers.length > 0) && <span className="text-zinc-700 mx-1">•</span>}
+                {createdBy && (
+                  <span>Created by: <span className="text-zinc-300">{createdBy.map((c) => c.name).join(', ')}</span></span>
+                )}
+              </p>
+            )}
+
+            {/* Networks */}
+            {networks.length > 0 && (
+              <div className="flex flex-wrap items-center gap-3 mb-2">
+                {networks.map((n) => (
+                  <span key={n.id} className="text-[11px] text-zinc-400 font-semibold uppercase tracking-wider">
+                    {n.name}
+                  </span>
+                ))}
+              </div>
             )}
 
             {/* Meta row */}
@@ -292,6 +343,17 @@ export function DetailPage({ mediaType }: DetailPageProps) {
                 <Star size={15} fill="currentColor" />
                 {rating.toFixed(1)}/10
               </span>
+              {certification && (
+                <span className="border border-zinc-700/60 text-[10px] font-bold text-zinc-200 px-1.5 py-0.5 rounded tracking-wider uppercase">
+                  {certification}
+                </span>
+              )}
+              {!isMovie(details) && tvStatus && (
+                <span className="text-[10px] text-zinc-500 font-semibold uppercase tracking-wider flex items-center gap-1">
+                  <span className={`w-2 h-2 rounded-full ${inProduction ? 'bg-green-500' : 'bg-red-500'}`} />
+                  {tvStatus}
+                </span>
+              )}
               {metaItems.map((m, i) => (
                 <span key={i} className="flex items-center gap-1.5 text-zinc-400">
                   {m.icon} {m.label}
@@ -430,20 +492,43 @@ export function DetailPage({ mediaType }: DetailPageProps) {
               </div>
             ) : seasonDetails && (
               <div className="space-y-6">
+                {(() => {
+                  const seasonAllWatched = seasonDetails.episodes.every((ep) => {
+                    const k = watchedKeyEpisode(details.id, selectedSeason!, ep.episode_number);
+                    return isWatched(k);
+                  });
+                  return (
                 <div className="flex items-center justify-between bg-zinc-900/50 border border-zinc-800/60 p-4 rounded-2xl">
                   <div>
                     <h3 className="font-bold text-lg text-gray-200">{seasonDetails.name}</h3>
                     <p className="text-xs text-zinc-500">{seasonDetails.episodes.length} Episodes</p>
                   </div>
-                  <Button 
-                    size="sm" 
-                    variant="accent" 
-                    onClick={handleSearchSeason}
-                    className="shrink-0"
-                  >
-                    Search Season
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={handleMarkSeasonWatched}
+                      className={`shrink-0 rounded-full border transition-colors ${
+                        seasonAllWatched
+                          ? 'bg-white/20 border-white/40 text-white'
+                          : 'bg-zinc-800/60 border-zinc-700/50 text-zinc-500 hover:text-white hover:border-white/30'
+                      }`}
+                      title={seasonAllWatched ? 'Mark all as unwatched' : 'Mark all as watched'}
+                    >
+                      <CheckCircle size={14} />
+                    </Button>
+                    <Button 
+                      size="sm" 
+                      variant="accent" 
+                      onClick={handleSearchSeason}
+                      className="shrink-0"
+                    >
+                      Search Season
+                    </Button>
+                  </div>
                 </div>
+                  );
+                })()}
 
                 <div className="space-y-3">
                   {seasonDetails.episodes.map((ep) => {

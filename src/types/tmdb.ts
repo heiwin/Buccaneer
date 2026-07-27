@@ -52,6 +52,7 @@ export interface CastMember {
   character: string;
   profile_path: string | null;
   order: number;
+  job?: string;
 }
 
 export interface Video {
@@ -63,7 +64,41 @@ export interface Video {
   official: boolean;
 }
 
-/** Full movie details (append_to_response=credits,videos) */
+export interface ReleaseDateEntry {
+  certification: string;
+  descriptors: string[];
+  iso_639_1: string;
+  note: string;
+  release_date: string;
+  type: number;
+}
+
+export interface ReleaseDateCountry {
+  iso_3166_1: string;
+  release_dates: ReleaseDateEntry[];
+}
+
+export interface ContentRatingEntry {
+  iso_3166_1: string;
+  rating: string;
+}
+
+export interface CreatedBy {
+  id: number;
+  credit_id: string;
+  name: string;
+  gender: number;
+  profile_path: string | null;
+}
+
+export interface Network {
+  id: number;
+  name: string;
+  logo_path: string | null;
+  origin_country: string;
+}
+
+/** Full movie details (append_to_response=credits,videos,release_dates) */
 export interface MovieDetails {
   id: number;
   title: string;
@@ -88,6 +123,9 @@ export interface MovieDetails {
   };
   videos?: {
     results: Video[];
+  };
+  release_dates?: {
+    results: ReleaseDateCountry[];
   };
 }
 
@@ -142,11 +180,17 @@ export interface TvDetails {
   genres: Genre[];
   production_companies: ProductionCompany[];
   seasons: TvSeason[];
+  created_by: CreatedBy[];
+  networks: Network[];
+  in_production: boolean;
   credits?: {
     cast: CastMember[];
     crew: CastMember[];
   };
   videos?: {
     results: Video[];
+  };
+  content_ratings?: {
+    results: ContentRatingEntry[];
   };
 }

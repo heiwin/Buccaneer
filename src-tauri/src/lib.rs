@@ -90,7 +90,7 @@ async fn get_trending_tv_series(tmdb_state: tauri::State<'_, TmdbState>, http_st
 async fn get_movie_details(movie_id: u64, tmdb_state: tauri::State<'_, TmdbState>, http_state: tauri::State<'_, HttpState>) -> Result<Value, String> {
     let key = tmdb_key!(tmdb_state);
     let url = format!(
-        "https://api.themoviedb.org/3/movie/{}?api_key={}&append_to_response=credits,videos",
+        "https://api.themoviedb.org/3/movie/{}?api_key={}&append_to_response=credits,videos,release_dates",
         movie_id, key
     );
     tmdb_get(&http_state, &url).await
@@ -100,7 +100,7 @@ async fn get_movie_details(movie_id: u64, tmdb_state: tauri::State<'_, TmdbState
 async fn get_tv_details(tv_id: u64, tmdb_state: tauri::State<'_, TmdbState>, http_state: tauri::State<'_, HttpState>) -> Result<Value, String> {
     let key = tmdb_key!(tmdb_state);
     let url = format!(
-        "https://api.themoviedb.org/3/tv/{}?api_key={}&append_to_response=credits,videos",
+        "https://api.themoviedb.org/3/tv/{}?api_key={}&append_to_response=credits,videos,content_ratings",
         tv_id, key
     );
     tmdb_get(&http_state, &url).await

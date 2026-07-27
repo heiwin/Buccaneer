@@ -42,7 +42,7 @@ export function NotificationBell({ episodes, count, loading, onAcknowledge }: No
           : <Bell size={18} className="text-zinc-400" />
         }
         {count > 0 && (
-          <span className="absolute -top-0.5 -right-0.5 bg-primary text-white text-[10px] font-bold w-4 h-4 rounded-full flex items-center justify-center">
+          <span className="absolute -top-0.5 -right-0.5 bg-zinc-700 text-zinc-200 text-[10px] font-bold w-4 h-4 rounded-full flex items-center justify-center">
             {count > 9 ? '9+' : count}
           </span>
         )}

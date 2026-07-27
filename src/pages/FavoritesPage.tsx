@@ -1,27 +1,53 @@
-import { Heart } from 'lucide-react';
+import { useState } from 'react';
+import { Heart, Search } from 'lucide-react';
 import { useLibrary } from '../lib/LibraryContext';
 import { PageHeader } from '../components/ui';
+import { Input } from '../components/ui';
 import { MediaCard, EmptyState } from '../components';
 
 export function FavoritesPage() {
   const { favorites } = useLibrary();
+  const [searchQuery, setSearchQuery] = useState('');
 
-  const movieFavorites = favorites
+  const q = searchQuery.toLowerCase().trim();
+  const filtered = q
+    ? favorites.filter((f) => f.title.toLowerCase().includes(q))
+    : favorites;
+
+  const movieFavorites = filtered
     .filter((f) => f.mediaType === 'movie')
     .sort((a, b) => b.addedAt - a.addedAt);
-  const tvFavorites = favorites
+  const tvFavorites = filtered
     .filter((f) => f.mediaType === 'tv')
     .sort((a, b) => b.addedAt - a.addedAt);
 
   return (
     <div className="p-8">
-      <PageHeader icon={Heart} title="Favorites" className="mb-12" />
+      <PageHeader icon={Heart} title="Favorites" className="mb-12 justify-between">
+        <div className="flex items-center gap-2">
+          <form onSubmit={(e) => e.preventDefault()} className="w-64 hidden md:block">
+            <Input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search favorites..."
+              icon={<Search size={15} />}
+              className="rounded-full"
+            />
+          </form>
+        </div>
+      </PageHeader>
 
       {favorites.length === 0 ? (
         <EmptyState
           icon={Heart}
           message="No favorites yet"
           subMessage="Click the heart icon on any movie or TV series card to add it here"
+        />
+      ) : filtered.length === 0 ? (
+        <EmptyState
+          icon={Search}
+          message={`No favorites match "${searchQuery}"`}
         />
       ) : (
         <div className="space-y-12 pb-20">

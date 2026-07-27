@@ -206,10 +206,10 @@ export function DownloadsPage() {
 
   return (
     <div className="p-8">
-      <div className="flex items-center justify-between mb-10">
-        <PageHeader icon={HardDrive} title="Active Downloads" className="mb-0" />
-        <div className="flex items-center gap-3">
-          <span className="text-[10px] text-gray-400 font-black uppercase tracking-widest whitespace-nowrap">Sort by</span>
+      <div className="mb-10">
+        <PageHeader icon={HardDrive} title="Active Downloads" className="mb-5" />
+        <div className="space-y-1.5">
+          <span className="text-[10px] text-gray-400 font-black uppercase tracking-widest">Sort by</span>
           <Select
             options={sortOptions}
             value={sortBy}

@@ -1,6 +1,6 @@
 [package]
 name = "buccaneer"
-version = "0.9.9"
+version = "0.9.10"
 description = "Buccaneer - Torrent streaming desktop app"
 authors = ["Buccaneer Team"]
 license = "MIT"

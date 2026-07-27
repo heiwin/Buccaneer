@@ -57,8 +57,6 @@ export function HomePage() {
         setNewEpisodes(episodes);
         setNewEpisodeCount(episodes.length);
       }
-
-      await updateLastOpened();
     })();
 
     return () => { cancelled = true; };
