@@ -28,6 +28,35 @@ export async function updateLastOpened(): Promise<void> {
   await store.save();
 }
 
+export function episodeKey(e: { showId: number; seasonNumber: number; episodeNumber: number }): string {
+  return `${e.showId}-${e.seasonNumber}-${e.episodeNumber}`;
+}
+
+export async function getClearedEpisodes(): Promise<string[]> {
+  try {
+    const store = await getStore();
+    return (await store.get<string[]>('cleared')) ?? [];
+  } catch {
+    return [];
+  }
+}
+
+export async function addClearedEpisode(key: string): Promise<void> {
+  const store = await getStore();
+  const cleared = (await store.get<string[]>('cleared')) ?? [];
+  if (!cleared.includes(key)) {
+    cleared.push(key);
+    await store.set('cleared', cleared);
+    await store.save();
+  }
+}
+
+export async function clearClearedEpisodes(): Promise<void> {
+  const store = await getStore();
+  await store.set('cleared', []);
+  await store.save();
+}
+
 export interface NewEpisode {
   showId: number;
   showName: string;
@@ -36,6 +65,13 @@ export interface NewEpisode {
   episodeNumber: number;
   episodeName: string;
   airDate: string;
+}
+
+function parseAirDate(airDate: string): number {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(airDate)) {
+    return new Date(`${airDate}T00:00:00`).getTime();
+  }
+  return new Date(airDate).getTime();
 }
 
 export async function checkNewEpisodes(
@@ -58,14 +94,14 @@ export async function checkNewEpisodes(
           a.season_number > b.season_number ? a : b
         );
 
-        const seasonStart = latestSeason.air_date ? new Date(latestSeason.air_date).getTime() : 0;
+        const seasonStart = latestSeason.air_date ? parseAirDate(latestSeason.air_date) : 0;
         const estimatedEnd = seasonStart + latestSeason.episode_count * 7 * 24 * 60 * 60 * 1000;
         if (seasonStart === 0 || estimatedEnd > threshold) {
           const seasonDetails = await getTvSeasonDetails(fav.id, latestSeason.season_number);
           if (seasonDetails.episodes) {
             for (const ep of seasonDetails.episodes) {
               if (ep.air_date) {
-                const epAirDate = new Date(ep.air_date).getTime();
+const epAirDate = parseAirDate(ep.air_date);
                 if (epAirDate > threshold && epAirDate <= now) {
                   showEpisodes.push({
                     showId: fav.id,

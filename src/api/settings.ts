@@ -14,6 +14,8 @@ export type AppSettings = {
   streamingProviders: number[];
   notificationsEnabled: boolean;
   downloadsSortBy: string;
+  favoritesSortBy: string;
+  tmdbApiKey: string;
 };
 
 export const DEFAULTS: AppSettings = {
@@ -28,6 +30,8 @@ export const DEFAULTS: AppSettings = {
   streamingProviders: [350],
   notificationsEnabled: true,
   downloadsSortBy: 'time-added',
+  favoritesSortBy: 'alphabetical',
+  tmdbApiKey: '',
 };
 
 let storeInstance: Store | null = null;

@@ -74,7 +74,62 @@ impl From<&librqbit::TorrentStats> for TorrentStats {
     }
 }
 
-fn validate_magnet_or_url(input: &str) -> Result<(), String> {
+fn is_blocked_ip(ip: &std::net::IpAddr) -> bool {
+    match ip {
+        std::net::IpAddr::V4(v4) => {
+            let o = v4.octets();
+            // Private: 10/8, 172.16/12, 192.168/16
+            if o[0] == 10 || (o[0] == 172 && (16..=31).contains(&o[1])) || (o[0] == 192 && o[1] == 168) {
+                return true;
+            }
+            // Loopback 127/8
+            if o[0] == 127 {
+                return true;
+            }
+            // Unspecified 0/8 and broadcast
+            if o[0] == 0 || (o[0] == 255 && o[1] == 255 && o[2] == 255 && o[3] == 255) {
+                return true;
+            }
+            // Link-local 169.254/16
+            if o[0] == 169 && o[1] == 254 {
+                return true;
+            }
+            // CGNAT 100.64/10
+            if o[0] == 100 && (64..=127).contains(&o[1]) {
+                return true;
+            }
+            // Documentation/benchmark/test ranges
+            if (o[0] == 192 && o[1] == 0 && (o[2] == 0 || o[2] == 2))
+                || (o[0] == 198 && ((18..=19).contains(&o[1]) || (o[1] == 51 && o[2] == 100)))
+                || (o[0] == 203 && o[1] == 0 && o[2] == 113)
+            {
+                return true;
+            }
+            // Reserved 240/4
+            if o[0] >= 240 {
+                return true;
+            }
+            false
+        }
+        std::net::IpAddr::V6(v6) => {
+            if v6.is_loopback() || v6.is_unspecified() || v6.is_multicast() {
+                return true;
+            }
+            // fe80::/10 link-local and fc00::/7 unique-local
+            let seg = v6.segments();
+            if (seg[0] & 0xffc0) == 0xfe80 || (seg[0] & 0xfe00) == 0xfc00 {
+                return true;
+            }
+            // IPv4-mapped addresses (e.g. ::ffff:127.0.0.1)
+            if let Some(ip4) = v6.to_ipv4_mapped() {
+                return is_blocked_ip(&std::net::IpAddr::V4(ip4));
+            }
+            false
+        }
+    }
+}
+
+async fn validate_magnet_or_url(input: &str) -> Result<(), String> {
     if input.starts_with("magnet:") {
         if !input.contains("xt=urn:btih:") {
             return Err("Invalid magnet URL: missing xt=urn:btih: parameter".to_string());
@@ -88,8 +143,30 @@ fn validate_magnet_or_url(input: &str) -> Result<(), String> {
             }
         }
     } else if input.starts_with("http://") || input.starts_with("https://") {
-        reqwest::Url::parse(input)
-            .map_err(|_| "Invalid HTTP URL".to_string())?;
+        let url = reqwest::Url::parse(input).map_err(|_| "Invalid HTTP URL".to_string())?;
+        let host = url
+            .host_str()
+            .ok_or_else(|| "Invalid HTTP URL: missing host".to_string())?
+            .to_string();
+
+        // Reject local hostnames outright
+        if host == "localhost" || host.ends_with(".localhost") || host.ends_with(".local") {
+            return Err("HTTP URL host must not be local".to_string());
+        }
+
+        let blocked = if let Ok(ip) = host.parse::<std::net::IpAddr>() {
+            is_blocked_ip(&ip)
+        } else {
+            // Resolve hostname and reject if any address is loopback/private
+            let resolved = tokio::net::lookup_host((host.as_str(), 80))
+                .await
+                .map_err(|_| "Could not resolve URL host".to_string())?;
+            resolved.into_iter().any(|addr| is_blocked_ip(&addr.ip()))
+        };
+
+        if blocked {
+            return Err("HTTP URL must point to a public address".to_string());
+        }
     } else {
         return Err("Invalid torrent source: must be a magnet link or HTTP URL".to_string());
     }
@@ -192,7 +269,7 @@ pub async fn add_torrent(
     stream: bool,
     only_files: Option<Vec<usize>>,
 ) -> Result<String, String> {
-    validate_magnet_or_url(&magnet_or_url)?;
+    validate_magnet_or_url(&magnet_or_url).await?;
 
     if let Some(ref files) = only_files {
         if files.is_empty() {
@@ -410,7 +487,7 @@ pub async fn get_torrent_metadata(
     state: State<'_, TorrentState>,
     magnet_or_url: String,
 ) -> Result<Vec<FileNode>, String> {
-    validate_magnet_or_url(&magnet_or_url)?;
+    validate_magnet_or_url(&magnet_or_url).await?;
     let add_torrent = AddTorrent::from_url(&magnet_or_url);
     let options = AddTorrentOptions {
         list_only: true,

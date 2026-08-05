@@ -6,6 +6,8 @@ import { getVersion } from '@tauri-apps/api/app';
 import { checkForUpdate } from '../api/updater';
 import type { UpdateState } from '../api/updater';
 import { relaunch } from '@tauri-apps/plugin-process';
+import { useNotifications } from '../lib/NotificationsContext';
+import { NotificationBell } from './NotificationBell';
 
 interface NavItemProps {
   to: string;
@@ -37,6 +39,7 @@ export function Sidebar() {
   const [currentVersion, setCurrentVersion] = useState<string>('');
   const updateStateRef = useRef(updateState);
   const cancelledRef = useRef(false);
+  const { newEpisodes, loading, handleClearAll, handleClearOne } = useNotifications();
 
   useEffect(() => {
     updateStateRef.current = updateState;
@@ -83,7 +86,6 @@ export function Sidebar() {
     };
     // checkForUpdate, getVersion, setUpdateState, setCurrentVersion are stable
     // (module-level imports and useState setters) — safe to omit.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleDownload = useCallback(async () => {
@@ -256,6 +258,14 @@ export function Sidebar() {
       </div>
 
       <div className="flex flex-col gap-2 px-4 lg:px-6">
+        <NotificationBell
+          episodes={newEpisodes}
+          count={newEpisodes.length}
+          loading={loading}
+          onClearAll={handleClearAll}
+          onClearOne={handleClearOne}
+          align="left"
+        />
         {renderUpdateBanner()}
         {updateState.status === 'idle' && currentVersion && (
           <div

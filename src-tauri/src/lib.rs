@@ -780,7 +780,6 @@ pub fn run() {
             torrent::get_active_torrents,
             torrent::get_torrent_details,
             vlc::auto_detect_vlc,
-            vlc::stream_with_vlc,
             vlc::open_in_vlc,
             torrent::update_clear_streaming_setting,
             torrent::update_ratelimits,

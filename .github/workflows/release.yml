@@ -64,11 +64,22 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: ${{ github.ref_name }}
           releaseBody: |
+            ## v0.9.11 — What's new
+
+            - **Notification Bell** — Moved to the sidebar with a badge that counts new episodes of your favorited TV shows. Notifications now survive app relaunches and page navigation; use **Clear** to reset them or click an episode to jump straight to the show.
+            - **Download-completion notifications** — OS notifications now fire app-wide, even when the Downloads page isn't open.
+            - **Security hardening** — SSRF protection for HTTP torrent sources (private/loopback/local addresses are rejected) and stricter path/type validation when opening files in VLC.
+            - **TV episode search** — Better results by merging dotted-title variants and deduplicating hits.
+            - **Settings** — Editable TMDB API key, favorites sorting, and a safer save flow that no longer overwrites changes made on other pages.
+            - Various bug fixes and polish.
+
+            ## Installers
+
             Download the appropriate asset for your platform:
             - **macOS (Intel)**: `.dmg` (x86_64)
             - **macOS (Apple Silicon)**: `.dmg` (aarch64)
             - **Windows**: `.msi`
-            - **Linux**: `.AppImage`
+            - **Linux**: `.AppImage` / `.deb`
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}

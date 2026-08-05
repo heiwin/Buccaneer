@@ -29,7 +29,7 @@
 ## Features
 
 - **Torrent Search** — Multi-source search with smart fallback between providers.
-- **Notification Bell** — Bell icon on HomePage shows new episodes for favorited TV series; click navigates directly to the show.
+- **Notification Bell** — Bell icon in the sidebar shows new episodes for favorited TV series with a badge counter; click navigates directly to the show.
 - **Stream & Download** — Stream in VLC or download with pause/resume and per-file selection within multi-file torrents.
 - **TMDB Integration** — Trending, details, cast, trailers, ratings; full Discover by genre/year/platform.
 - **TV Seasons & Episodes** — Episode browser, mark watched, quick-search across torrent sources.
@@ -74,10 +74,10 @@ Pre-built installers are available on the [releases page](https://github.com/hei
 
 | OS                     | Download                                                                                                                      |
 | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| **macOS** (Apple Silicon) | [`Buccaneer_0.9.10_aarch64.dmg`](https://github.com/heiwin/Buccaneer/releases/download/v0.9.10/Buccaneer_0.9.10_aarch64.dmg) |
-| **macOS** (Intel Mac)     | [`Buccaneer_0.9.10_x64.dmg`](https://github.com/heiwin/Buccaneer/releases/download/v0.9.10/Buccaneer_0.9.10_x64.dmg)          |
-| **Windows**               | [`Buccaneer_0.9.10_x64_en-US.msi`](https://github.com/heiwin/Buccaneer/releases/download/v0.9.10/Buccaneer_0.9.10_x64_en-US.msi) |
-| **Linux**                 | [`Buccaneer_0.9.10_amd64.AppImage`](https://github.com/heiwin/Buccaneer/releases/download/v0.9.10/Buccaneer_0.9.10_amd64.AppImage) · [`Buccaneer_0.9.10_amd64.deb`](https://github.com/heiwin/Buccaneer/releases/download/v0.9.10/Buccaneer_0.9.10_amd64.deb) |
+| **macOS** (Apple Silicon) | [`Buccaneer_0.9.11_aarch64.dmg`](https://github.com/heiwin/Buccaneer/releases/download/v0.9.11/Buccaneer_0.9.11_aarch64.dmg) |
+| **macOS** (Intel Mac)     | [`Buccaneer_0.9.11_x64.dmg`](https://github.com/heiwin/Buccaneer/releases/download/v0.9.11/Buccaneer_0.9.11_x64.dmg)          |
+| **Windows**               | [`Buccaneer_0.9.11_x64_en-US.msi`](https://github.com/heiwin/Buccaneer/releases/download/v0.9.11/Buccaneer_0.9.11_x64_en-US.msi) |
+| **Linux**                 | [`Buccaneer_0.9.11_amd64.AppImage`](https://github.com/heiwin/Buccaneer/releases/download/v0.9.11/Buccaneer_0.9.11_amd64.AppImage) · [`Buccaneer_0.9.11_amd64.deb`](https://github.com/heiwin/Buccaneer/releases/download/v0.9.11/Buccaneer_0.9.11_amd64.deb) |
 
 > **⚠️ macOS Unverified Developer Notice**
 >

@@ -3,9 +3,11 @@ import { Routes, Route, useNavigate } from 'react-router-dom';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { onOpenUrl } from '@tauri-apps/plugin-deep-link';
+import { sendNotification } from '@tauri-apps/plugin-notification';
 import { loadSettings } from './api/settings';
 import { getActiveTorrents } from './api/torrent';
 import { LibraryProvider } from './lib/LibraryContext';
+import { NotificationsProvider } from './lib/NotificationsContext';
 import { Sidebar } from './components';
 import { ConfirmDialog, ErrorBoundary } from './components/ui';
 
@@ -24,6 +26,7 @@ function App() {
 
   useEffect(() => {
     loadSettings().then((s) => {
+      invoke('set_tmdb_api_key', { key: s.tmdbApiKey || '' }).catch(console.error);
       invoke('update_clear_streaming_setting', { value: s.clearStreamingOnExit }).catch(console.error);
       invoke('update_ratelimits', { downloadKbps: s.downloadLimit, uploadKbps: s.uploadLimit }).catch(console.error);
       if (s.downloadPath) {
@@ -75,6 +78,39 @@ function App() {
     };
   }, [navigate]);
 
+  // Global download-completion notifications — fire even when the Downloads page
+  // is not mounted. Streamed torrents are excluded (buffering is not a download).
+  useEffect(() => {
+    let cancelled = false;
+    const prevStates = new Map<string, string>();
+
+    const check = async () => {
+      if (cancelled) return;
+      try {
+        const torrents = await getActiveTorrents();
+        if (cancelled) return;
+        const settings = await loadSettings();
+        for (const t of torrents) {
+          if (t.isStream) continue;
+          const prev = prevStates.get(t.id);
+          if (prev === 'downloading' && t.state === 'seeding' && settings.notificationsEnabled) {
+            sendNotification({
+              title: 'Download Complete',
+              body: `${t.name} has finished downloading.`,
+            });
+          }
+          prevStates.set(t.id, t.state);
+        }
+      } catch (e: unknown) {
+        console.error('Error polling downloads for notifications:', e instanceof Error ? e.message : String(e));
+      }
+    };
+
+    check();
+    const interval = setInterval(check, 5000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, []);
+
   const handleConfirmClose = useCallback(() => {
     setCloseDialogOpen(false);
     closeRequestedRef.current = false;
@@ -88,36 +124,38 @@ function App() {
 
   return (
     <LibraryProvider>
-      <ErrorBoundary>
-        <div className="flex h-screen bg-background text-gray-100 overflow-hidden">
-          <Sidebar />
-          <main className="flex-1 overflow-y-auto overflow-x-hidden">
-            <Suspense fallback={<div className="flex items-center justify-center h-full" role="status"><span className="loading loading-spinner" /></div>}>
-              <Routes>
-                <Route path="/" element={<HomePage />} />
-                <Route path="/movie/:id" element={<DetailPage mediaType="movie" />} />
-                <Route path="/tv/:id" element={<DetailPage mediaType="tv" />} />
-                <Route path="/search" element={<SearchPage />} />
-                <Route path="/discover" element={<DiscoverPage />} />
-                <Route path="/settings" element={<SettingsPage />} />
-                <Route path="/downloads" element={<DownloadsPage />} />
-                <Route path="/favorites" element={<FavoritesPage />} />
-              </Routes>
-            </Suspense>
-          </main>
-        </div>
-      </ErrorBoundary>
+      <NotificationsProvider>
+        <ErrorBoundary>
+          <div className="flex h-screen bg-background text-gray-100 overflow-hidden">
+            <Sidebar />
+            <main className="flex-1 overflow-y-auto overflow-x-hidden">
+              <Suspense fallback={<div className="flex items-center justify-center h-full" role="status"><span className="loading loading-spinner" /></div>}>
+                <Routes>
+                  <Route path="/" element={<HomePage />} />
+                  <Route path="/movie/:id" element={<DetailPage mediaType="movie" />} />
+                  <Route path="/tv/:id" element={<DetailPage mediaType="tv" />} />
+                  <Route path="/search" element={<SearchPage />} />
+                  <Route path="/discover" element={<DiscoverPage />} />
+                  <Route path="/settings" element={<SettingsPage />} />
+                  <Route path="/downloads" element={<DownloadsPage />} />
+                  <Route path="/favorites" element={<FavoritesPage />} />
+                </Routes>
+              </Suspense>
+            </main>
+          </div>
+        </ErrorBoundary>
 
-      <ConfirmDialog
-        isOpen={closeDialogOpen}
-        onClose={handleCancelClose}
-        onConfirm={handleConfirmClose}
-        title="Warning"
-        message="There are active, paused, or completed downloads. Are you sure you want to close?"
-        confirmLabel="Close anyway"
-        cancelLabel="Cancel"
-        kind="warning"
-      />
+        <ConfirmDialog
+          isOpen={closeDialogOpen}
+          onClose={handleCancelClose}
+          onConfirm={handleConfirmClose}
+          title="Warning"
+          message="There are active, paused, or completed downloads. Are you sure you want to close?"
+          confirmLabel="Close anyway"
+          cancelLabel="Cancel"
+          kind="warning"
+        />
+      </NotificationsProvider>
     </LibraryProvider>
   );
 }

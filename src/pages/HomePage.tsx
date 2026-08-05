@@ -6,10 +6,6 @@ import type { TMDBListItem } from '../types/tmdb';
 import { Input, PageHeader, Spinner, ErrorBanner, Button } from '../components/ui';
 import { STREAMING_PROVIDERS } from '../constants/streaming';
 import { loadSettings } from '../api/settings';
-import { NotificationBell } from '../components/NotificationBell';
-import { checkNewEpisodes, getLastOpened, updateLastOpened } from '../api/notifications';
-import type { NewEpisode } from '../api/notifications';
-import { useLibrary } from '../lib/LibraryContext';
 
 interface ProviderSection {
   providerId: number;
@@ -27,40 +23,6 @@ export function HomePage() {
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [providerSections, setProviderSections] = useState<ProviderSection[]>([]);
-  const [newEpisodes, setNewEpisodes] = useState<NewEpisode[]>([]);
-  const [newEpisodeCount, setNewEpisodeCount] = useState(0);
-
-  const { favorites } = useLibrary();
-
-  const handleAcknowledge = async () => {
-    await updateLastOpened();
-    setNewEpisodes([]);
-    setNewEpisodeCount(0);
-  };
-
-  useEffect(() => {
-    const tvFavorites = favorites.filter(f => f.mediaType === 'tv');
-    if (tvFavorites.length === 0) return;
-
-    let cancelled = false;
-
-    (async () => {
-      const lastOpened = await getLastOpened();
-      if (!lastOpened) {
-        await updateLastOpened();
-        return;
-      }
-
-      const episodes = await checkNewEpisodes(tvFavorites, lastOpened);
-
-      if (!cancelled) {
-        setNewEpisodes(episodes);
-        setNewEpisodeCount(episodes.length);
-      }
-    })();
-
-    return () => { cancelled = true; };
-  }, [favorites]);
 
   useEffect(() => {
     let cancelled = false;
@@ -181,7 +143,6 @@ export function HomePage() {
               className="rounded-full"
             />
           </form>
-          <NotificationBell episodes={newEpisodes} count={newEpisodeCount} loading={false} onAcknowledge={handleAcknowledge} />
         </div>
       </PageHeader>
 

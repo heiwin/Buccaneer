@@ -84,59 +84,17 @@ pub async fn auto_detect_vlc() -> Result<Option<String>, String> {
     Ok(None)
 }
 
-#[tauri::command]
-pub async fn stream_with_vlc(
-    torrent_id: String,
-    file_index: u32,
-    vlc_path: Option<String>,
-    title: Option<String>,
-    state: tauri::State<'_, crate::torrent::TorrentState>,
-) -> Result<(), String> {
-    let _ = &title; // received but unused — VLC reads metadata from the stream
-    let executable = vlc_path.unwrap_or_else(|| "vlc".to_string());
-
-    if executable != "vlc" {
-        let path = std::path::Path::new(&executable);
-        if !path.exists() {
-            return Err(format!("VLC not found at '{}'", executable));
-        }
-        #[cfg(target_os = "macos")]
-        {
-            let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-            if file_name != "VLC" && file_name.to_lowercase() != "vlc" {
-                return Err(format!("'{}' does not appear to be a valid VLC path", executable));
-            }
-        }
-        #[cfg(target_os = "windows")]
-        if !executable.to_lowercase().contains("vlc") {
-            return Err(format!("'{}' does not appear to be a valid VLC path", executable));
-        }
-        #[cfg(target_os = "linux")]
-        {
-            let output = std::process::Command::new(&executable)
-                .arg("--version")
-                .output()
-                .map_err(|_| format!("Failed to execute '{}'", executable))?;
-            if !String::from_utf8_lossy(&output.stdout).contains("VLC") {
-                return Err(format!("'{}' does not appear to be a valid VLC executable", executable));
-            }
-        }
-    }
-
-    let stream_url = format!(
-        "http://{}@127.0.0.1:{}/torrents/{}/stream/{}",
-        state.api_userpass, state.api_port, torrent_id, file_index
-    );
-
-    let mut cmd = std::process::Command::new(&executable);
-    cmd.arg("--network-caching=10000");
-    cmd.arg("--");
-    cmd.arg(&stream_url);
-
-    cmd.spawn()
-        .map_err(|e| format!("Failed to launch VLC at '{}': {}", executable, e))?;
-
-    Ok(())
+fn is_video_file(path: &std::path::Path) -> bool {
+    const VIDEO_EXTENSIONS: &[&str] = &[
+        "mp4", "mkv", "avi", "mov", "wmv", "flv", "webm", "m4v", "mpg", "mpeg", "ts", "m2ts",
+        "3gp", "ogm", "ogv",
+    ];
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+    VIDEO_EXTENSIONS.contains(&ext.as_str())
 }
 
 #[tauri::command]
@@ -156,6 +114,15 @@ pub async fn open_in_vlc(
     let full_path = std::path::Path::new(&file_path);
     if !full_path.exists() {
         return Err(format!("File not found at '{}'", file_path));
+    }
+    if !full_path.is_file() {
+        return Err(format!("'{}' is not a file", file_path));
+    }
+    if full_path.components().any(|c| matches!(c, std::path::Component::ParentDir)) {
+        return Err("Invalid path: '..' segments are not allowed".to_string());
+    }
+    if !is_video_file(full_path) {
+        return Err(format!("'{}' is not a supported video file", file_path));
     }
 
     let mut cmd = std::process::Command::new(&executable);

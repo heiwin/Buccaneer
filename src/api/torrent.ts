@@ -74,9 +74,9 @@ export async function getActiveTorrents(): Promise<TorrentInfo[]> {
     const snapshot = live.snapshot || {};
     const peerStats = snapshot.peer_stats || {};
     
-    // progress computation
-    const total = stats.total_bytes || 1;
-    const progress = stats.progress_bytes ? (stats.progress_bytes / total) : 0;
+    // progress computation (clamped to [0,1] and 0 when total is missing)
+    const total = stats.total_bytes && stats.total_bytes > 0 ? stats.total_bytes : 0;
+    const progress = total > 0 ? Math.min(1, Math.max(0, (stats.progress_bytes || 0) / total)) : 0;
     
     const VALID_STATES = new Set(['downloading', 'seeding', 'paused', 'error', 'checking']);
     let stateStr = (stats.state || 'error').toLowerCase();
@@ -114,10 +114,6 @@ export async function openInFileManager(path: string): Promise<void> {
 
 export async function autoDetectVlc(): Promise<string | null> {
   return await invoke('auto_detect_vlc');
-}
-
-export async function streamWithVlc(id: string, fileIndex: number, vlcPath: string | null, title?: string): Promise<void> {
-  return await invoke('stream_with_vlc', { torrentId: id, fileIndex, vlcPath, title: title || null });
 }
 
 export async function openInVlc(filePath: string, vlcPath: string | null): Promise<void> {

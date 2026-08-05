@@ -7,7 +7,6 @@ import { formatBytes } from '../api/knaben';
 import { loadSettings, saveSettings } from '../api/settings';
 import { Select, Button, Badge, ConfirmDialog, PageHeader, ErrorBanner } from '../components/ui';
 import { EmptyState } from '../components';
-import { sendNotification } from '@tauri-apps/plugin-notification';
 
 
 
@@ -39,7 +38,6 @@ export function DownloadsPage() {
   });
   const [vlcDialog, setVlcDialog] = useState<'not-found' | 'launch-error' | null>(null);
   const [sortBy, setSortBy] = useState('time-added');
-  const prevStatesRef = useRef<Map<string, string>>(new Map());
   const sortInitialized = useRef(false);
   const errorCountRef = useRef(0);
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -73,22 +71,7 @@ export function DownloadsPage() {
       try {
         const data = await getActiveTorrents();
         if (cancelled) return;
-        const prev = prevStatesRef.current;
 
-        for (const t of data) {
-          const prevState = prev.get(t.id);
-          if (prevState === 'downloading' && t.state === 'seeding') {
-            const settings = await loadSettings();
-            if (settings.notificationsEnabled) {
-              sendNotification({
-                title: 'Download Complete',
-                body: `${t.name} has finished downloading.`,
-              });
-            }
-          }
-        }
-
-        prevStatesRef.current = new Map(data.map((t) => [t.id, t.state]));
         setTorrents(data);
         setError(null);
         errorCountRef.current = 0;

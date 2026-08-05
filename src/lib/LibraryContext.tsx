@@ -26,8 +26,10 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
   const latestFavorites = useRef(favorites);
   const latestWatched = useRef(watched);
 
-  latestFavorites.current = favorites;
-  latestWatched.current = watched;
+  useEffect(() => {
+    latestFavorites.current = favorites;
+    latestWatched.current = watched;
+  }, [favorites, watched]);
 
   // Load on mount (once; ref survives StrictMode double-mount)
   useEffect(() => {

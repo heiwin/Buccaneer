@@ -12,6 +12,7 @@ import {
   CheckCircle,
 } from 'lucide-react';
 import { getMovieDetails, getTvDetails, getTvSeasonDetails, backdropUrl, posterUrl, profileUrl } from '../api/tmdb';
+import { formatDate } from '../lib/utils';
 import { searchTorrents } from '../api/knaben';
 import { Button, Spinner, Badge } from '../components/ui';
 import { TorrentList, Carousel } from '../components';
@@ -50,7 +51,7 @@ export function DetailPage({ mediaType }: DetailPageProps) {
   const [source, setSource] = useState('knaben');
   
   const torrentSectionRef = useRef<HTMLDivElement>(null);
-  const episodeSearchOverrideRef = useRef<TorrentResult[] | null>(null);
+  const episodeQueryRef = useRef<string | null>(null);
 
   // TV Specific state
   const [selectedSeason, setSelectedSeason] = useState<number | null>(null);
@@ -101,24 +102,43 @@ export function DetailPage({ mediaType }: DetailPageProps) {
     let cancelled = false;
     if (!searchQuery) return;
 
-    const override = episodeSearchOverrideRef.current;
-    if (override !== null) {
-      episodeSearchOverrideRef.current = null;
-      setTorrentsLoading(false);
-      setTorrents(override);
-      return;
-    }
-
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setTorrentsLoading(true);
     setTorrentsError(null);
     const finalQuery = buildSearchQuery(searchQuery, qualityFilter, languageFilter);
     const tvId = mediaType === 'tv' && id ? Number(id) : null;
-    searchTorrents(finalQuery, mediaType, source, tvId)
-      .then((res) => { if (!cancelled) setTorrents(res.hits || []); })
-      .catch((e: unknown) => { if (!cancelled) setTorrentsError(e instanceof Error ? e.message : String(e)); })
-      .finally(() => { if (!cancelled) setTorrentsLoading(false); });
+    const isEpisodeSearch = episodeQueryRef.current === searchQuery;
+
+    if (isEpisodeSearch) {
+      // Episode search: also run a dotted-title variant and merge (deduped)
+      const dottedQuery = searchQuery.replace(/\s+/g, '.');
+      const finalQuery2 = buildSearchQuery(dottedQuery, qualityFilter, languageFilter);
+      Promise.all([
+        searchTorrents(finalQuery, mediaType, source, tvId),
+        searchTorrents(finalQuery2, mediaType, source, tvId),
+      ])
+        .then(([res1, res2]) => {
+          if (cancelled) return;
+          const seen = new Set<string>();
+          const merged = [...(res1.hits || []), ...(res2.hits || [])].filter((item) => {
+            const key = item.hash || item.id;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          });
+          setTorrents(merged);
+        })
+        .catch((e: unknown) => { if (!cancelled) setTorrentsError(e instanceof Error ? e.message : String(e)); })
+        .finally(() => { if (!cancelled) setTorrentsLoading(false); });
+    } else {
+      searchTorrents(finalQuery, mediaType, source, tvId)
+        .then((res) => { if (!cancelled) setTorrents(res.hits || []); })
+        .catch((e: unknown) => { if (!cancelled) setTorrentsError(e instanceof Error ? e.message : String(e)); })
+        .finally(() => { if (!cancelled) setTorrentsLoading(false); });
+    }
+
     return () => { cancelled = true; };
-  }, [searchQuery, qualityFilter, languageFilter, mediaType, source]);
+  }, [searchQuery, qualityFilter, languageFilter, mediaType, source, id]);
 
   // Helpers for TV searches
   const handleSearchSeason = () => {
@@ -142,7 +162,7 @@ export function DetailPage({ mediaType }: DetailPageProps) {
     });
   };
 
-  const handleSearchEpisode = async (episodeNumber: number) => {
+  const handleSearchEpisode = (episodeNumber: number) => {
     if (!details || isMovie(details) || selectedSeason === null) return;
 
     const name = details.name;
@@ -151,42 +171,11 @@ export function DetailPage({ mediaType }: DetailPageProps) {
       : '';
     const rawTitle = name.replace(/[:'-]/g, ' ').replace(/\s+/g, ' ').trim();
     const episode = `s${String(selectedSeason).padStart(2, '0')}e${String(episodeNumber).padStart(2, '0')}`;
+    const query = year ? `${rawTitle} ${year} ${episode}` : `${rawTitle} ${episode}`;
 
-    // Query 1: "Titolo Anno sXXeYY"
-    const query1 = year ? `${rawTitle} ${year} ${episode}` : `${rawTitle} ${episode}`;
-
-    // Query 2: "Titolo.sXXeYY" (dots instead of spaces)
-    const dottedTitle = rawTitle.replace(/\s+/g, '.');
-    const query2 = `${dottedTitle}.${episode}`;
-
-    const finalQuery1 = buildSearchQuery(query1, qualityFilter, languageFilter);
-    const finalQuery2 = buildSearchQuery(query2, qualityFilter, languageFilter);
-
-    setSearchQuery(query1);
+    episodeQueryRef.current = query;
+    setSearchQuery(query);
     setSource('knaben');
-    setTorrentsLoading(true);
-    setTorrentsError(null);
-
-    try {
-      const [res1, res2] = await Promise.all([
-        searchTorrents(finalQuery1, 'tv', 'knaben', Number(id)),
-        searchTorrents(finalQuery2, 'tv', 'knaben', Number(id)),
-      ]);
-
-      const seen = new Set<string>();
-      const merged = [...(res1.hits || []), ...(res2.hits || [])].filter((item) => {
-        const key = item.hash || item.id;
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      });
-
-      episodeSearchOverrideRef.current = merged;
-    } catch (e: unknown) {
-      setTorrentsError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setTorrentsLoading(false);
-    }
 
     torrentSectionRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
@@ -556,7 +545,7 @@ export function DetailPage({ mediaType }: DetailPageProps) {
                                 <span className="ml-2 text-[10px] text-white/70 font-normal uppercase tracking-wider">Watched</span>
                               )}
                             </h4>
-                            {ep.air_date && <p className="text-[10px] text-zinc-500 mb-2">{ep.air_date}</p>}
+                            {ep.air_date && <p className="text-[10px] text-zinc-500 mb-2">{formatDate(ep.air_date)}</p>}
                           </div>
                           <div className="flex items-center gap-2 shrink-0">
                             <Button

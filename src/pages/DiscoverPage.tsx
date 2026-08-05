@@ -98,6 +98,7 @@ export function DiscoverPage() {
 
   // Load results
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true);
     setError(null);
     discoverMedia(mediaType, selectedGenre, selectedYear, page, selectedRating, selectedLanguage, selectedProvider || null, watchRegion || null, null)

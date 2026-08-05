@@ -42,7 +42,6 @@ export const Select: React.FC<SelectProps> = ({
   error,
   icon,
   options: providedOptions,
-  children,
   value,
   onChange,
   placeholder = 'Select an option...',

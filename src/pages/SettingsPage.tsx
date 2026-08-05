@@ -23,6 +23,7 @@ export function SettingsPage() {
   useEffect(() => {
     loadSettings().then((s) => {
       setSettings(s);
+      setApiKey(s.tmdbApiKey || '');
       invoke('update_clear_streaming_setting', { value: s.clearStreamingOnExit }).catch(console.error);
     });
     appDataDir().then(setAppCachePath).catch(console.error);
@@ -30,7 +31,23 @@ export function SettingsPage() {
 
   const handleSave = async () => {
     try {
-      await saveSettings(settings);
+      // Merge with the latest persisted settings so changes made on other pages
+      // (e.g. favorites/downloads sort) are not clobbered by this form's snapshot.
+      const latest = await loadSettings();
+      await saveSettings({
+        ...latest,
+        hideUnsafe: settings.hideUnsafe,
+        hideXxx: settings.hideXxx,
+        vlcPath: settings.vlcPath,
+        downloadPath: settings.downloadPath,
+        clearStreamingOnExit: settings.clearStreamingOnExit,
+        downloadLimit: settings.downloadLimit,
+        uploadLimit: settings.uploadLimit,
+        streamingRegion: settings.streamingRegion,
+        streamingProviders: settings.streamingProviders,
+        notificationsEnabled: settings.notificationsEnabled,
+        tmdbApiKey: apiKey,
+      });
       await invoke('update_clear_streaming_setting', { value: settings.clearStreamingOnExit }).catch(console.error);
       await invoke('update_ratelimits', { downloadKbps: settings.downloadLimit, uploadKbps: settings.uploadLimit }).catch(console.error);
       await invoke('set_tmdb_api_key', { key: apiKey }).catch(console.error);
