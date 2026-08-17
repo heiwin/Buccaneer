@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Search, Settings, Save, RotateCcw, Shield, ShieldOff, Trash2, FolderOpen, RefreshCw, HardDrive } from 'lucide-react';
-import { loadSettings, saveSettings, DEFAULTS, type AppSettings } from '../api/settings';
+import { loadSettings, saveSettings, DEFAULTS, settingsAreReady, onSettingsReady, resetSettingsFile, type AppSettings } from '../api/settings';
 import { invoke } from '@tauri-apps/api/core';
 import { appDataDir } from '@tauri-apps/api/path';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
@@ -15,6 +15,7 @@ import { STREAMING_PROVIDERS, REGIONS } from '../constants/streaming';
 export function SettingsPage() {
   const [settings, setSettings] = useState<AppSettings>(DEFAULTS);
   const [saved, setSaved] = useState(false);
+  const [settingsReady, setSettingsReady] = useState(settingsAreReady());
   const [apiKey, setApiKey] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [appCachePath, setAppCachePath] = useState('');
@@ -24,12 +25,22 @@ export function SettingsPage() {
     loadSettings().then((s) => {
       setSettings(s);
       setApiKey(s.tmdbApiKey || '');
+      setSettingsReady(settingsAreReady());
       invoke('update_clear_streaming_setting', { value: s.clearStreamingOnExit }).catch(console.error);
     });
     appDataDir().then(setAppCachePath).catch(console.error);
+    const unsubscribe = onSettingsReady(() => {
+      setSettingsReady(true);
+      loadSettings().then((s) => {
+        setSettings(s);
+        setApiKey(s.tmdbApiKey || '');
+      });
+    });
+    return unsubscribe;
   }, []);
 
   const handleSave = async () => {
+    if (!settingsReady) return;
     try {
       // Merge with the latest persisted settings so changes made on other pages
       // (e.g. favorites/downloads sort) are not clobbered by this form's snapshot.
@@ -63,6 +74,19 @@ export function SettingsPage() {
     setSettings(DEFAULTS);
   };
 
+  const handleRecoverSettings = async () => {
+    try {
+      // Explicit user-confirmed recovery: overwrite the unreadable file so the
+      // app becomes usable again and saves are unblocked.
+      await resetSettingsFile(DEFAULTS);
+      setSettings(DEFAULTS);
+      setApiKey(DEFAULTS.tmdbApiKey);
+      setSettingsReady(true);
+    } catch (e: unknown) {
+      console.error('Failed to reset settings file:', e instanceof Error ? e.message : String(e));
+    }
+  };
+
   const handleBrowseVlc = async () => {
     const selected = await openDialog({
       directory: false,
@@ -76,6 +100,7 @@ export function SettingsPage() {
   // Maintenance
   const { resetLibrary } = useLibrary();
   const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [settingsResetConfirm, setSettingsResetConfirm] = useState(false);
   const [cacheCleared, setCacheCleared] = useState(false);
   const [vlcDetectDialog, setVlcDetectDialog] = useState(false);
 
@@ -482,11 +507,31 @@ export function SettingsPage() {
         )}
 
         {/* Actions */}
+        {!settingsReady && (
+          <div className="rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs p-3 mb-6">
+            <p>
+              Impossibile caricare le impostazioni salvate da disco: le modifiche sono bloccate per
+              evitare di sovrascrivere i dati esistenti. Verifica che il file{' '}
+              <code className="font-mono">settings.json</code> sia leggibile, oppure ripristina i
+              valori di default.
+            </p>
+            <Button
+              variant="danger"
+              size="sm"
+              icon={RotateCcw}
+              className="mt-3"
+              onClick={() => setSettingsResetConfirm(true)}
+            >
+              Reset settings file to defaults
+            </Button>
+          </div>
+        )}
         <div className="flex items-center gap-3">
           <Button
             variant={saved ? 'primary' : 'primary'}
             icon={Save}
             onClick={handleSave}
+            disabled={!settingsReady}
             className={saved ? '!bg-emerald-500/20 !border !border-emerald-500/40 !text-emerald-400' : ''}
           >
             {saved ? 'Saved!' : 'Save Settings'}
@@ -508,6 +553,19 @@ export function SettingsPage() {
         title="Reset Library"
         message="This will permanently delete all your favorites and watched history. This action cannot be undone."
         confirmLabel="Reset Library"
+        kind="danger"
+      />
+
+      <ConfirmDialog
+        isOpen={settingsResetConfirm}
+        onClose={() => setSettingsResetConfirm(false)}
+        onConfirm={() => {
+          setSettingsResetConfirm(false);
+          handleRecoverSettings();
+        }}
+        title="Reset Settings File"
+        message="The settings file could not be read. This will permanently overwrite settings.json with the default values. This action cannot be undone."
+        confirmLabel="Overwrite with defaults"
         kind="danger"
       />
 

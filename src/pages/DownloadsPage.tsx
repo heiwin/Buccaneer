@@ -19,10 +19,19 @@ function formatEta(seconds: number): string {
   return `${h}h ${m}m`;
 }
 
+function formatDateTime(ts: number): string {
+  return new Date(ts).toLocaleString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  });
+}
+
 interface ConfirmState {
   isOpen: boolean;
   torrentId: string;
   deleteFiles: boolean;
+  isCompleted: boolean;
 }
 
 export function DownloadsPage() {
@@ -35,8 +44,9 @@ export function DownloadsPage() {
     isOpen: false,
     torrentId: '',
     deleteFiles: false,
+    isCompleted: false,
   });
-  const [vlcDialog, setVlcDialog] = useState<'not-found' | 'launch-error' | null>(null);
+  const [vlcDialog, setVlcDialog] = useState<{ kind: 'not-found' | 'launch-error'; message?: string } | null>(null);
   const [sortBy, setSortBy] = useState('time-added');
   const sortInitialized = useRef(false);
   const errorCountRef = useRef(0);
@@ -52,7 +62,7 @@ export function DownloadsPage() {
   useEffect(() => {
     if (!sortInitialized.current) return;
     const timer = setTimeout(() => {
-      loadSettings().then((s) => saveSettings({ ...s, downloadsSortBy: sortBy }));
+      loadSettings().then((s) => saveSettings({ ...s, downloadsSortBy: sortBy })).catch(console.error);
     }, 1000);
     return () => clearTimeout(timer);
   }, [sortBy]);
@@ -124,6 +134,12 @@ export function DownloadsPage() {
     return list;
   }, [torrents, sortBy]);
 
+  const { activeTorrents, completedTorrents } = useMemo(() => {
+    const active = sortedTorrents.filter((t) => !t.isCompletedHistory);
+    const completed = sortedTorrents.filter((t) => t.isCompletedHistory);
+    return { activeTorrents: active, completedTorrents: completed };
+  }, [sortedTorrents]);
+
   const handlePause = async (id: string) => {
     try {
       await pauseTorrent(id);
@@ -140,8 +156,8 @@ export function DownloadsPage() {
     }
   };
 
-  const requestRemove = (id: string, deleteFiles: boolean) => {
-    setConfirmState({ isOpen: true, torrentId: id, deleteFiles });
+  const requestRemove = (id: string, deleteFiles: boolean, isCompleted = false) => {
+    setConfirmState({ isOpen: true, torrentId: id, deleteFiles, isCompleted });
   };
 
   const executeRemove = async () => {
@@ -174,23 +190,52 @@ export function DownloadsPage() {
       }
       await openInVlc(`${outputFolder}/${fileName}`, settings.vlcPath || null);
     } catch (e: unknown) {
-      console.error(e instanceof Error ? e.message : String(e));
+      const reason = e instanceof Error ? e.message : String(e);
+      console.error(reason);
       const settings = await loadSettings();
       const detected = await autoDetectVlc();
       if (!detected && !settings.vlcPath) {
-        setVlcDialog('not-found');
+        setVlcDialog({ kind: 'not-found' });
       } else {
-        setVlcDialog('launch-error');
+        setVlcDialog({ kind: 'launch-error', message: reason });
+      }
+    }
+  };
+
+  const handleStreamCompletedVlc = async (t: TorrentInfo) => {
+    try {
+      const active = await getActiveTorrents();
+      for (const s of active) {
+        if (s.isStream) await pauseTorrent(s.id);
+      }
+      const settings = await loadSettings();
+
+      const files = t.files || [];
+      const fileIdx = findBestVideoFileIndex(files.map((f) => ({ name: f, length: 0 })), t.name);
+      const fileName = files[fileIdx];
+
+      if (!t.savePath || !fileName) {
+        throw new Error('Could not determine file path');
+      }
+      await openInVlc(`${t.savePath}/${fileName}`, settings.vlcPath || null);
+    } catch (e: unknown) {
+      const reason = e instanceof Error ? e.message : String(e);
+      console.error(reason);
+      const settings = await loadSettings();
+      const detected = await autoDetectVlc();
+      if (!detected && !settings.vlcPath) {
+        setVlcDialog({ kind: 'not-found' });
+      } else {
+        setVlcDialog({ kind: 'launch-error', message: reason });
       }
     }
   };
 
 
-
   return (
     <div className="p-8">
       <div className="mb-10">
-        <PageHeader icon={HardDrive} title="Active Downloads" className="mb-5" />
+        <PageHeader icon={HardDrive} title="Downloads" className="mb-5" />
         <div className="space-y-1.5">
           <span className="text-[10px] text-gray-400 font-black uppercase tracking-widest">Sort by</span>
           <Select
@@ -206,11 +251,17 @@ export function DownloadsPage() {
       {error && <ErrorBanner error={error} withIcon className="mb-6" />}
 
       {!loading && torrents.length === 0 && !error && (
-        <EmptyState icon={HardDrive} message="No active downloads" />
+        <EmptyState icon={HardDrive} message="No downloads" />
+      )}
+
+      {activeTorrents.length > 0 && (
+        <div className="mb-2">
+          <span className="text-[10px] text-gray-400 font-black uppercase tracking-widest">Active</span>
+        </div>
       )}
 
       <div className="space-y-4">
-        {sortedTorrents.map((t) => (
+        {activeTorrents.map((t) => (
           <div key={t.id} className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5">
             <div className="flex items-start justify-between gap-4 mb-4">
               <div className="min-w-0 flex-1">
@@ -245,9 +296,7 @@ export function DownloadsPage() {
                   Resume
                 </Button>
               )}
-              
 
-              
               <Button variant="secondary" size="sm" icon={Play} onClick={() => handleStreamVlc(t.id)}>
                 Stream VLC
               </Button>
@@ -295,23 +344,78 @@ export function DownloadsPage() {
         ))}
       </div>
 
+      {completedTorrents.length > 0 && (
+        <div className="mt-10 mb-2">
+          <span className="text-[10px] text-gray-400 font-black uppercase tracking-widest">Completed</span>
+        </div>
+      )}
+
+      <div className="space-y-4">
+        {completedTorrents.map((t) => (
+          <div key={t.id} className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5">
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-3 mb-1">
+                  <h3 className="font-bold text-gray-200 truncate">{t.name || 'Unknown'}</h3>
+                  <Badge variant="emerald" size="sm">Download</Badge>
+                </div>
+                <div className="flex flex-wrap gap-x-4 gap-y-2 text-xs text-zinc-500">
+                  <span>Completed</span>
+                  {t.completedAt ? <span>{formatDateTime(t.completedAt)}</span> : null}
+                  {t.totalBytes > 0 && <span>{formatBytes(t.totalBytes)}</span>}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 mt-4 bg-black/20 p-2 rounded-xl">
+              <Button variant="ghost" size="sm" icon={X} onClick={() => requestRemove(t.id, false, true)}>
+                Remove
+              </Button>
+              <Button variant="secondary" size="sm" icon={Trash2} onClick={() => requestRemove(t.id, true, true)}>
+                Delete Files
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                icon={Play}
+                onClick={() => handleStreamCompletedVlc(t)}
+              >
+                Stream VLC
+              </Button>
+              <div className="flex-1"></div>
+              <Button variant="ghost" size="sm" icon={FolderOpen} onClick={() => openInFileManager(t.savePath)}>
+                Open Folder
+              </Button>
+            </div>
+          </div>
+        ))}
+      </div>
+
       {/* Confirm Dialog */}
       <ConfirmDialog
         isOpen={confirmState.isOpen}
         onClose={() => setConfirmState(s => ({ ...s, isOpen: false }))}
         onConfirm={executeRemove}
-        title={confirmState.deleteFiles ? 'Delete Files' : 'Cancel Download'}
+        title={
+          confirmState.deleteFiles
+            ? 'Delete Files'
+            : confirmState.isCompleted
+              ? 'Remove Download'
+              : 'Cancel Download'
+        }
         message={
           confirmState.deleteFiles
             ? 'Are you sure you want to delete the downloaded files? This action cannot be undone.'
-            : 'Are you sure you want to cancel this download? The torrent will be removed but files will be kept.'
+            : confirmState.isCompleted
+              ? 'Are you sure you want to remove this download from the list? The files will be kept.'
+              : 'Are you sure you want to cancel this download? The torrent will be removed but files will be kept.'
         }
         confirmLabel={confirmState.deleteFiles ? 'Delete Files' : 'Remove Download'}
         kind={confirmState.deleteFiles ? 'danger' : 'warning'}
       />
 
       <ConfirmDialog
-        isOpen={vlcDialog === 'not-found'}
+        isOpen={vlcDialog?.kind === 'not-found'}
         onClose={() => setVlcDialog(null)}
         onConfirm={() => navigate('/settings')}
         title="VLC Not Found"
@@ -321,11 +425,11 @@ export function DownloadsPage() {
       />
 
       <ConfirmDialog
-        isOpen={vlcDialog === 'launch-error'}
+        isOpen={vlcDialog?.kind === 'launch-error'}
         onClose={() => setVlcDialog(null)}
         onConfirm={() => setVlcDialog(null)}
         title="Launch Error"
-        message="Failed to launch VLC"
+        message={vlcDialog?.message || 'Failed to launch VLC'}
         confirmLabel="OK"
         kind="info"
         hideCancel

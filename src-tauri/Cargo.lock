@@ -558,11 +558,12 @@ dependencies = [
 
 [[package]]
 name = "buccaneer"
-version = "0.9.11"
+version = "0.9.12"
 dependencies = [
  "base64 0.22.1",
  "chrono",
  "directories",
+ "libc",
  "librqbit",
  "log",
  "reqwest 0.12.28",

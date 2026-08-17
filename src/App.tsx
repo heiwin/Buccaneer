@@ -1,10 +1,9 @@
 import { useEffect, useRef, useState, useCallback, lazy, Suspense } from 'react';
 import { Routes, Route, useNavigate } from 'react-router-dom';
-import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { onOpenUrl } from '@tauri-apps/plugin-deep-link';
 import { sendNotification } from '@tauri-apps/plugin-notification';
-import { loadSettings } from './api/settings';
+import { loadSettings, settingsAreReady, onSettingsReady, applySettingsToBackend, ensureDefaultVlcPath } from './api/settings';
 import { getActiveTorrents } from './api/torrent';
 import { LibraryProvider } from './lib/LibraryContext';
 import { NotificationsProvider } from './lib/NotificationsContext';
@@ -18,6 +17,7 @@ const DiscoverPage = lazy(() => import('./pages/DiscoverPage').then(m => ({ defa
 const SettingsPage = lazy(() => import('./pages/SettingsPage').then(m => ({ default: m.SettingsPage })));
 const DownloadsPage = lazy(() => import('./pages/DownloadsPage').then(m => ({ default: m.DownloadsPage })));
 const FavoritesPage = lazy(() => import('./pages/FavoritesPage').then(m => ({ default: m.FavoritesPage })));
+const WatchlistPage = lazy(() => import('./pages/WatchlistPage').then(m => ({ default: m.WatchlistPage })));
 
 function App() {
   const navigate = useNavigate();
@@ -25,17 +25,30 @@ function App() {
   const closeRequestedRef = useRef(false);
 
   useEffect(() => {
+    let cancelled = false;
     loadSettings().then((s) => {
-      invoke('set_tmdb_api_key', { key: s.tmdbApiKey || '' }).catch(console.error);
-      invoke('update_clear_streaming_setting', { value: s.clearStreamingOnExit }).catch(console.error);
-      invoke('update_ratelimits', { downloadKbps: s.downloadLimit, uploadKbps: s.uploadLimit }).catch(console.error);
-      if (s.downloadPath) {
-        invoke('set_download_path', { path: s.downloadPath }).catch(console.error);
-      }
+      if (cancelled) return;
+      // Only push settings to the backend once they are confirmed from disk.
+      // Applying defaults over a failed load would wipe the user's real state.
+      if (!settingsAreReady()) return;
+      applySettingsToBackend(s);
+      ensureDefaultVlcPath();
+    });
+
+    const unlistenSettingsReady = onSettingsReady(() => {
+      if (cancelled) return;
+      // Settings became available after the first attempt (e.g. transient FD
+      // exhaustion resolved, or in-app recovery rewrote a corrupt file).
+      loadSettings().then((s) => {
+        if (!cancelled) {
+          applySettingsToBackend(s);
+          ensureDefaultVlcPath();
+        }
+      });
     });
 
     const VALID_ROUTES = new Set([
-      '/', '/search', '/discover', '/settings', '/downloads', '/favorites',
+      '/', '/search', '/discover', '/settings', '/downloads', '/favorites', '/watchlist',
     ]);
 
     let lastDeepLink = 0;
@@ -73,6 +86,8 @@ function App() {
     });
 
     return () => {
+      cancelled = true;
+      unlistenSettingsReady();
       unlisten.then(f => f());
       unlistenDeepLink.then(f => f());
     };
@@ -83,6 +98,8 @@ function App() {
   useEffect(() => {
     let cancelled = false;
     const prevStates = new Map<string, string>();
+    let initialSeed = true;
+    const COMPLETED_STATES = new Set(['seeding', 'completed']);
 
     const check = async () => {
       if (cancelled) return;
@@ -90,17 +107,21 @@ function App() {
         const torrents = await getActiveTorrents();
         if (cancelled) return;
         const settings = await loadSettings();
+        const notificationsEnabled = settingsAreReady() ? settings.notificationsEnabled : false;
+
         for (const t of torrents) {
           if (t.isStream) continue;
-          const prev = prevStates.get(t.id);
-          if (prev === 'downloading' && t.state === 'seeding' && settings.notificationsEnabled) {
+          const isCompleted = t.completedAt != null || COMPLETED_STATES.has(t.state);
+          const wasCompleted = prevStates.get(t.id) === 'completed';
+          if (!initialSeed && !wasCompleted && isCompleted && notificationsEnabled) {
             sendNotification({
               title: 'Download Complete',
               body: `${t.name} has finished downloading.`,
             });
           }
-          prevStates.set(t.id, t.state);
+          prevStates.set(t.id, isCompleted ? 'completed' : t.state);
         }
+        initialSeed = false;
       } catch (e: unknown) {
         console.error('Error polling downloads for notifications:', e instanceof Error ? e.message : String(e));
       }
@@ -139,6 +160,7 @@ function App() {
                   <Route path="/settings" element={<SettingsPage />} />
                   <Route path="/downloads" element={<DownloadsPage />} />
                   <Route path="/favorites" element={<FavoritesPage />} />
+                  <Route path="/watchlist" element={<WatchlistPage />} />
                 </Routes>
               </Suspense>
             </main>
@@ -150,7 +172,7 @@ function App() {
           onClose={handleCancelClose}
           onConfirm={handleConfirmClose}
           title="Warning"
-          message="There are active, paused, or completed downloads. Are you sure you want to close?"
+          message="There are downloads still in progress. Are you sure you want to close?"
           confirmLabel="Close anyway"
           cancelLabel="Cancel"
           kind="warning"

@@ -102,12 +102,29 @@ pub async fn open_in_vlc(
     file_path: String,
     vlc_path: Option<String>,
 ) -> Result<(), String> {
-    let executable = vlc_path.unwrap_or_else(|| "vlc".to_string());
+    let requested = vlc_path.unwrap_or_else(|| "vlc".to_string());
+    let executable = resolve_vlc_executable(&requested);
 
     if executable != "vlc" {
         let path = std::path::Path::new(&executable);
         if !path.exists() {
             return Err(format!("VLC not found at '{}'", executable));
+        }
+        if !path.is_file() {
+            return Err(format!(
+                "VLC path '{}' is not a file (select the binary, e.g. .../VLC.app/Contents/MacOS/VLC)",
+                executable
+            ));
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(path)
+                .map(|m| m.permissions().mode())
+                .unwrap_or(0);
+            if mode & 0o111 == 0 {
+                return Err(format!("VLC at '{}' is not executable", executable));
+            }
         }
     }
 
@@ -133,4 +150,26 @@ pub async fn open_in_vlc(
         .map_err(|e| format!("Failed to launch VLC at '{}': {}", executable, e))?;
 
     Ok(())
+}
+
+/// Normalize a user-supplied VLC location into a directly executable binary.
+/// macOS: a selected `.app` bundle is a directory, so resolve its inner
+/// `/Contents/MacOS/{name}` executable when present.
+fn resolve_vlc_executable(path: &str) -> String {
+    if path.is_empty() || path == "vlc" {
+        return "vlc".to_string();
+    }
+    let p = std::path::Path::new(path);
+    if !p.is_dir() {
+        return path.to_string();
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let name = p.file_stem().and_then(|s| s.to_str()).unwrap_or("VLC");
+        let inner = p.join("Contents").join("MacOS").join(name);
+        if inner.is_file() {
+            return inner.to_string_lossy().to_string();
+        }
+    }
+    path.to_string()
 }

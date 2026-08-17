@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tauri::State;
 
+use crate::completed::{CompletedEntry, CompletedStore};
+
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::AtomicBool;
 use std::sync::Mutex;
@@ -174,15 +176,31 @@ async fn validate_magnet_or_url(input: &str) -> Result<(), String> {
 }
 
 pub struct TorrentState {
-    pub session: Arc<Session>,
+    /// `None` until the librqbit session initializes. The state is managed up
+    /// front so a transient init failure degrades to a clear command error
+    /// instead of Tauri's "state not managed" panic, and can recover in place
+    /// via the background retry in lib.rs.
+    pub session: Arc<Mutex<Option<(Arc<Session>, u16)>>>,
     pub http_client: reqwest::Client,
     pub streamed_torrents: Arc<Mutex<HashSet<usize>>>,
     pub base_path: Arc<Mutex<String>>,
     pub clear_streaming_on_exit: Arc<AtomicBool>,
     pub api_credentials: String,
-    pub api_port: u16,
     pub api_userpass: String,
     pub torrent_times: Arc<Mutex<HashMap<usize, TorrentTimes>>>,
+    pub completed: Arc<Mutex<CompletedStore>>,
+}
+
+impl TorrentState {
+    /// Shared accessor for the initialized session and its bound API port.
+    /// Returns a clear error while the engine is (re)initializing.
+    pub fn session(&self) -> Result<(Arc<Session>, u16), String> {
+        self.session
+            .lock()
+            .map_err(|e| e.to_string())?
+            .clone()
+            .ok_or_else(|| "Torrent engine not initialized".to_string())
+    }
 }
 
 #[tauri::command]
@@ -245,13 +263,15 @@ pub async fn update_ratelimits(
         None
     };
 
+    let (_, api_port) = state.session()?;
+
     let body = serde_json::json!({
         "download_bps": download_bps,
         "upload_bps": upload_bps
     });
 
     let _res = state.http_client
-        .post(format!("http://127.0.0.1:{}/torrents/limits", state.api_port))
+        .post(format!("http://127.0.0.1:{}/torrents/limits", api_port))
         .header("Content-Type", "application/json")
         .header("Authorization", &state.api_credentials)
         .json(&body)
@@ -296,8 +316,9 @@ pub async fn add_torrent(
         ..Default::default()
     };
 
-    let response = state
-        .session
+    let (session, _) = state.session()?;
+
+    let response = session
         .add_torrent(add_torrent, Some(options))
         .await
         .map_err(|e| e.to_string())?;
@@ -333,12 +354,9 @@ pub async fn add_torrent(
 #[tauri::command]
 pub async fn pause_torrent(state: State<'_, TorrentState>, id: String) -> Result<(), String> {
     let parsed_id: usize = id.parse().map_err(|_| "Invalid ID".to_string())?;
-    if let Some(handle) = state
-        .session
-        .get(librqbit::api::TorrentIdOrHash::Id(parsed_id))
-    {
-        state
-            .session
+    let (session, _) = state.session()?;
+    if let Some(handle) = session.get(librqbit::api::TorrentIdOrHash::Id(parsed_id)) {
+        session
             .pause(&handle)
             .await
             .map_err(|e| e.to_string())?;
@@ -349,12 +367,9 @@ pub async fn pause_torrent(state: State<'_, TorrentState>, id: String) -> Result
 #[tauri::command]
 pub async fn resume_torrent(state: State<'_, TorrentState>, id: String) -> Result<(), String> {
     let parsed_id: usize = id.parse().map_err(|_| "Invalid ID".to_string())?;
-    if let Some(handle) = state
-        .session
-        .get(librqbit::api::TorrentIdOrHash::Id(parsed_id))
-    {
-        state
-            .session
+    let (session, _) = state.session()?;
+    if let Some(handle) = session.get(librqbit::api::TorrentIdOrHash::Id(parsed_id)) {
+        session
             .unpause(&handle)
             .await
             .map_err(|e| e.to_string())?;
@@ -368,23 +383,58 @@ pub async fn remove_torrent(
     id: String,
     delete_files: bool,
 ) -> Result<(), String> {
+    if let Some(hash) = id.strip_prefix("c:") {
+        let entry = {
+            let mut store = state.completed.lock().map_err(|e| e.to_string())?;
+            store.remove(hash).map_err(|e| e.to_string())?
+        };
+        if let Some(entry) = entry {
+            if delete_files {
+                delete_entry_files(&entry);
+            }
+        }
+        return Ok(());
+    }
+
     let parsed_id: usize = id.parse().map_err(|_| "Invalid ID".to_string())?;
     if let Ok(mut times) = state.torrent_times.lock() {
         times.remove(&parsed_id);
     }
-    state
-        .session
+    let (session, _) = state.session()?;
+    session
         .delete(librqbit::api::TorrentIdOrHash::Id(parsed_id), delete_files)
         .await
         .map_err(|e| e.to_string())?;
     Ok(())
 }
 
+fn delete_entry_files(entry: &CompletedEntry) {
+    let mut parents = std::collections::HashSet::new();
+    for rel in &entry.files {
+        let p = std::path::Path::new(&entry.output_folder).join(rel);
+        let _ = std::fs::remove_file(&p);
+        if let Some(parent) = p.parent() {
+            parents.insert(parent.to_path_buf());
+        }
+    }
+    let mut dirs: Vec<_> = parents.into_iter().collect();
+    dirs.sort_by_key(|d| std::cmp::Reverse(d.components().count()));
+    for d in dirs {
+        let empty = std::fs::read_dir(&d)
+            .map(|mut it| it.next().is_none())
+            .unwrap_or(false);
+        if empty {
+            let _ = std::fs::remove_dir(&d);
+        }
+    }
+}
+
 #[tauri::command]
 pub async fn get_active_torrents(
     state: State<'_, TorrentState>,
 ) -> Result<serde_json::Value, String> {
-    let url = format!("http://127.0.0.1:{}/torrents", state.api_port);
+    let (session, api_port) = state.session()?;
+    let url = format!("http://127.0.0.1:{}/torrents", api_port);
     let res = state.http_client
         .get(&url)
         .header("Authorization", &state.api_credentials)
@@ -401,7 +451,7 @@ pub async fn get_active_torrents(
         };
         
         // We need to fetch stats internally since the HTTP /torrents endpoint omits them
-        let stats_map = state.session.with_torrents(|internal_torrents| {
+        let stats_map = session.with_torrents(|internal_torrents| {
             let mut map = HashMap::new();
             for (id, handle) in internal_torrents {
                 let stats = TorrentStats::from(&handle.stats());
@@ -415,28 +465,70 @@ pub async fn get_active_torrents(
             .unwrap_or_default()
             .as_millis() as i64;
 
-        // Track completion times and populate response
+        // Track completion times, detect finished downloads and prepare them
+        // for removal from the session (which closes their file descriptors).
+        struct CompletionInfo {
+            id: usize,
+            info_hash: String,
+            name: String,
+            output: String,
+            total: u64,
+            finished_at: i64,
+        }
+
+        let mut completions: Vec<CompletionInfo> = Vec::new();
         if let Ok(mut times) = state.torrent_times.lock() {
             for t in torrents.iter_mut() {
                 if let Some(id) = t.get("id").and_then(|id| id.as_u64()) {
                     let id_usize = id as usize;
                     let is_stream = streams.contains(&id_usize);
+                    let info_hash = t
+                        .get("info_hash")
+                        .and_then(|h| h.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let name = t
+                        .get("name")
+                        .and_then(|n| n.as_str())
+                        .unwrap_or("Unknown")
+                        .to_string();
+                    let output = t
+                        .get("output_folder")
+                        .and_then(|o| o.as_str())
+                        .unwrap_or("")
+                        .to_string();
                     if let Some(obj) = t.as_object_mut() {
                         obj.insert("is_stream".to_string(), serde_json::Value::Bool(is_stream));
 
                         if let Some(stats_val) = stats_map.get(&id_usize) {
                             obj.insert("stats".to_string(), stats_val.clone());
 
-                            // Detect completion transition
-                            if let Some(finished) = stats_val.get("finished").and_then(|v| v.as_bool()) {
-                                if finished {
-                                    let entry = times.entry(id_usize).or_insert(TorrentTimes {
-                                        added_at: now,
-                                        completed_at: None,
+                            let finished = stats_val
+                                .get("finished")
+                                .and_then(|v| v.as_bool())
+                                .unwrap_or(false);
+                            if finished {
+                                let entry = times.entry(id_usize).or_insert(TorrentTimes {
+                                    added_at: now,
+                                    completed_at: None,
+                                });
+                                if entry.completed_at.is_none() {
+                                    entry.completed_at = Some(now);
+                                }
+
+                                if !is_stream {
+                                    let total = stats_val
+                                        .get("total_bytes")
+                                        .and_then(|v| v.as_u64())
+                                        .unwrap_or(0);
+                                    completions.push(CompletionInfo {
+                                        id: id_usize,
+                                        info_hash,
+                                        name,
+                                        output,
+                                        total,
+                                        finished_at: now,
                                     });
-                                    if entry.completed_at.is_none() {
-                                        entry.completed_at = Some(now);
-                                    }
                                 }
                             }
                         }
@@ -452,9 +544,187 @@ pub async fn get_active_torrents(
                 }
             }
         }
+
+        // Record finished downloads in the completed-history store and remove
+        // them from the session so their file handles are closed.
+        if !completions.is_empty() {
+            let to_record: Vec<CompletionInfo> = {
+                let store = state.completed.lock().map_err(|e| e.to_string())?;
+                completions
+                    .into_iter()
+                    .filter(|c| !c.info_hash.is_empty() && !store.contains(&c.info_hash))
+                    .collect()
+            };
+
+            let dropped: HashSet<usize> = to_record.iter().map(|c| c.id).collect();
+
+            for c in to_record {
+                let files =
+                    fetch_torrent_files(&state.http_client, &state.api_credentials, api_port, c.id)
+                        .await;
+                {
+                    let mut store = state.completed.lock().map_err(|e| e.to_string())?;
+                    let _ = store.add(CompletedEntry {
+                        info_hash: c.info_hash.to_lowercase(),
+                        name: c.name,
+                        total_bytes: c.total,
+                        output_folder: c.output,
+                        files,
+                        finished_at: c.finished_at,
+                    });
+                }
+                // Closing the torrent releases its file descriptors.
+                let _ = session
+                    .delete(librqbit::api::TorrentIdOrHash::Id(c.id), false)
+                    .await;
+            }
+
+            // The removed torrents are now represented by the history entries
+            // below; drop them from the live list to avoid a transient duplicate.
+            if !dropped.is_empty() {
+                torrents.retain(|t| {
+                    let id = t.get("id").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                    !dropped.contains(&id)
+                });
+            }
+        }
+
+        // Merge the completed-downloads history into the response so finished
+        // downloads remain visible after being removed from the session.
+        {
+            let live_hashes: HashSet<String> = torrents
+                .iter()
+                .filter_map(|t| t.get("info_hash").and_then(|h| h.as_str()))
+                .map(|h| h.to_lowercase())
+                .collect();
+
+            // Snapshot the history under a short lock, then release it before
+            // any disk I/O (re-scanning) so a slow folder never blocks the poll.
+            let history: Vec<CompletedEntry> = {
+                let store = state.completed.lock().map_err(|e| e.to_string())?;
+                store.entries().to_vec()
+            };
+
+            for entry in history {
+                if live_hashes.contains(&entry.info_hash.to_lowercase()) {
+                    // Still live in the session: an earlier session.delete likely
+                    // failed, leaving the file descriptors open. Drop the history
+                    // entry so the next poll re-records it and retries the delete.
+                    let _ = state
+                        .completed
+                        .lock()
+                        .map_err(|e| e.to_string())?
+                        .remove(&entry.info_hash);
+                    continue;
+                }
+                let mut files = entry.files.clone();
+                let needs_rescan = files.is_empty()
+                    || !any_file_exists(&entry.output_folder, &files);
+                if needs_rescan {
+                    // The completion-time snapshot can be empty (its HTTP fetch
+                    // occasionally fails right before session removal), or its
+                    // recorded paths can be stale/incorrect. Rebuild from disk
+                    // so streaming/open work, and persist it so the store
+                    // self-heals and scans are not repeated on every poll.
+                    let scanned = scan_output_files(&entry.output_folder);
+                    if !scanned.is_empty() {
+                        files = scanned.clone();
+                        let _ = state
+                            .completed
+                            .lock()
+                            .map_err(|e| e.to_string())?
+                            .set_files(&entry.info_hash, scanned);
+                    }
+                }
+                torrents.push(serde_json::json!({
+                    "id": format!("c:{}", entry.info_hash),
+                    "name": entry.name,
+                    "info_hash": entry.info_hash,
+                    "output_folder": entry.output_folder,
+                    "is_stream": false,
+                    "is_completed_history": true,
+                    "completed_at": entry.finished_at,
+                    "files": files,
+                    "stats": {
+                        "state": "completed",
+                        "finished": true,
+                        "total_bytes": entry.total_bytes,
+                        "progress_bytes": entry.total_bytes,
+                    },
+                }));
+            }
+        }
     }
 
     Ok(json)
+}
+
+/// Recursively list files on disk under `output_folder`, as paths relative to
+/// the folder (matching the shape of the snapshot recorded at completion time).
+/// Symlinks are never followed — a symlinked directory pointing at an ancestor
+/// would otherwise cause the traversal to loop forever.
+fn scan_output_files(output_folder: &str) -> Vec<String> {
+    let base = std::path::Path::new(output_folder);
+    let Ok(base_canonical) = std::fs::canonicalize(base) else {
+        return Vec::new();
+    };
+    let mut files = Vec::new();
+    let mut visited = std::collections::HashSet::new();
+    let mut stack = vec![base_canonical.clone()];
+    while let Some(dir) = stack.pop() {
+        if !visited.insert(dir.clone()) {
+            continue;
+        }
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let Ok(file_type) = entry.file_type() else {
+                continue;
+            };
+            let path = entry.path();
+            if file_type.is_dir() {
+                stack.push(path);
+            } else if file_type.is_file() {
+                if let Ok(rel) = path.strip_prefix(&base_canonical) {
+                    files.push(rel.to_string_lossy().to_string());
+                }
+            }
+        }
+    }
+    files
+}
+
+/// True when at least one of the recorded file paths still exists on disk.
+/// Used to detect stale/incorrect snapshots that deserve a disk re-scan.
+fn any_file_exists(output_folder: &str, files: &[String]) -> bool {
+    let base = std::path::Path::new(output_folder);
+    files.iter().any(|rel| !rel.is_empty() && base.join(rel).is_file())
+}
+
+async fn fetch_torrent_files(
+    client: &reqwest::Client,
+    credentials: &str,
+    port: u16,
+    id: usize,
+) -> Vec<String> {
+    let url = format!("http://127.0.0.1:{}/torrents/{}", port, id);
+    if let Ok(resp) = client
+        .get(&url)
+        .header("Authorization", credentials)
+        .send()
+        .await
+    {
+        if let Ok(json) = resp.json::<serde_json::Value>().await {
+            if let Some(files) = json.get("files").and_then(|f| f.as_array()) {
+                return files
+                    .iter()
+                    .filter_map(|f| f.get("name").and_then(|n| n.as_str()).map(String::from))
+                    .collect();
+            }
+        }
+    }
+    Vec::new()
 }
 
 #[tauri::command]
@@ -464,7 +734,8 @@ pub async fn get_torrent_details(
 ) -> Result<serde_json::Value, String> {
     // Validate id is numeric to prevent path traversal
     id.parse::<usize>().map_err(|_| "Invalid torrent ID: must be numeric".to_string())?;
-    let url = format!("http://127.0.0.1:{}/torrents/{}", state.api_port, id);
+    let (_, api_port) = state.session()?;
+    let url = format!("http://127.0.0.1:{}/torrents/{}", api_port, id);
     let res = state.http_client
         .get(&url)
         .header("Authorization", &state.api_credentials)
@@ -494,8 +765,9 @@ pub async fn get_torrent_metadata(
         ..Default::default()
     };
 
-    let response = state
-        .session
+    let (session, _) = state.session()?;
+
+    let response = session
         .add_torrent(add_torrent, Some(options))
         .await
         .map_err(|e| e.to_string())?;

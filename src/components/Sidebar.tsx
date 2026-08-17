@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { NavLink } from 'react-router-dom';
-import { Home, Compass, Search, Settings, HardDrive, Heart, Download, RefreshCw, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Home, Compass, Search, Settings, HardDrive, Heart, Eye, Download, RefreshCw, CheckCircle2, AlertCircle } from 'lucide-react';
 import appIcon from '../assets/icon.png';
 import { getVersion } from '@tauri-apps/api/app';
 import { checkForUpdate } from '../api/updater';
@@ -221,6 +221,7 @@ export function Sidebar() {
         return (
           <button
             onClick={handleRetry}
+            title={updateState.message || 'Update check failed'}
             className="flex items-center gap-2 px-3 py-2 mb-2 text-xs rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 hover:bg-rose-500/20 transition-colors cursor-pointer w-full"
           >
             <AlertCircle size={14} />
@@ -254,6 +255,7 @@ export function Sidebar() {
           <NavItem to="/search" icon={<Search size={20} />} label="Search" />
           <NavItem to="/downloads" icon={<HardDrive size={20} />} label="Downloads" />
           <NavItem to="/favorites" icon={<Heart size={20} />} label="Favorites" />
+          <NavItem to="/watchlist" icon={<Eye size={20} />} label="Watchlist" />
         </nav>
       </div>
 

@@ -64,13 +64,14 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: ${{ github.ref_name }}
           releaseBody: |
-            ## v0.9.11 — What's new
+            ## v0.9.12 — What's new
 
-            - **Notification Bell** — Moved to the sidebar with a badge that counts new episodes of your favorited TV shows. Notifications now survive app relaunches and page navigation; use **Clear** to reset them or click an episode to jump straight to the show.
-            - **Download-completion notifications** — OS notifications now fire app-wide, even when the Downloads page isn't open.
-            - **Security hardening** — SSRF protection for HTTP torrent sources (private/loopback/local addresses are rejected) and stricter path/type validation when opening files in VLC.
-            - **TV episode search** — Better results by merging dotted-title variants and deduplicating hits.
-            - **Settings** — Editable TMDB API key, favorites sorting, and a safer save flow that no longer overwrites changes made on other pages.
+            - **Watchlist** — A new page to track movies and TV shows you want to watch next. Browse by Movies/TV, search, and sort by name, recent additions, rating, or last updated.
+            - **More reliable torrent sources** — When a source returns no results, searches now automatically fall back to the next source (knaben → apibay → eztv) before giving up.
+            - **Resilient torrent engine startup** — Session initialization is retried automatically if it fails, and commands fail with a clear message instead of hanging.
+            - **Self-healing download history** — Corrupted history files are preserved instead of overwritten, and stale/empty file snapshots are rebuilt from disk.
+            - **Safer file scanning** — Symlink loops no longer hang the app, and folder scans run without holding locks.
+            - **Update checker fix** — No more unhandled promise rejections when the update check times out.
             - Various bug fixes and polish.
 
             ## Installers

@@ -4,7 +4,6 @@ use tauri::Manager;
 use std::sync::Mutex;
 
 use base64::Engine;
-use tauri_plugin_dialog::DialogExt;
 
 // This API key is intentionally embedded in the binary. It's a free, rate-limited key
 // that only provides read-only access to TMDB's movie/TV database. Exposure is not a
@@ -287,6 +286,8 @@ async fn search_torrents(query: String, media_type: Option<String>, source: Opti
             Ok(res)
         }
         _ => {
+            // Primary source: Knaben aggregator. Empty hits (after filters) or a
+            // failure fall through to the apibay → eztv chain below.
             match search_knaben(&http_state.client, &query, &media_type).await {
                 Ok(mut json) => {
                     if let Some(hits) = json.get_mut("hits").and_then(|h| h.as_array_mut()) {
@@ -309,26 +310,63 @@ async fn search_torrents(query: String, media_type: Option<String>, source: Opti
                             return Ok(json);
                         }
                     }
-                    let mut apibay_res = search_apibay(&http_state.client, &query).await?;
+                }
+                Err(_) => {}
+            }
+
+            // Fallback chain: apibay → eztv (TV series only). The same rule applies
+            // at every step — an empty (but reachable) source moves on to the next
+            // one; only when the last applicable source fails do we surface a
+            // friendly error instead of a raw request error.
+            let can_search_eztv = media_type.as_deref() == Some("tv");
+
+            match search_apibay(&http_state.client, &query).await {
+                Ok(mut apibay_res) => {
                     if let Some(ref pat) = episode_pattern {
                         if let Some(hits) = apibay_res.get_mut("hits").and_then(|h| h.as_array_mut()) {
                             filter_by_episode_pattern(hits, pat);
                         }
                     }
-                    Ok(apibay_res)
+                    let empty = apibay_res["hits"]
+                        .as_array()
+                        .map(|h| h.is_empty())
+                        .unwrap_or(true);
+                    if !empty || !can_search_eztv {
+                        return Ok(apibay_res);
+                    }
                 }
-                Err(_) => {
-                    let mut apibay_res = search_apibay(&http_state.client, &query).await?;
+                Err(e) => {
+                    if !can_search_eztv {
+                        return Err(friendly_torrents_error(&e));
+                    }
+                }
+            }
+
+            let eztv_result = if let Some(tv) = tv_id {
+                search_eztv_by_id(&http_state.client, tv, &api_key).await
+            } else {
+                search_eztv(&http_state.client, &query, &api_key).await
+            };
+
+            match eztv_result {
+                Ok(mut res) => {
                     if let Some(ref pat) = episode_pattern {
-                        if let Some(hits) = apibay_res.get_mut("hits").and_then(|h| h.as_array_mut()) {
+                        if let Some(hits) = res.get_mut("hits").and_then(|h| h.as_array_mut()) {
                             filter_by_episode_pattern(hits, pat);
                         }
                     }
-                    Ok(apibay_res)
+                    Ok(res)
                 }
+                Err(e) => Err(friendly_torrents_error(&e)),
             }
         }
     }
+}
+
+/// Convert a raw source failure into a user-facing message. The prefix stays
+/// friendly; the underlying cause is kept so debugging doesn't lose information.
+fn friendly_torrents_error(cause: &str) -> String {
+    format!("unable to reach torrent sources: {cause}")
 }
 
 async fn search_knaben(client: &Client, query: &str, media_type: &Option<String>) -> Result<Value, String> {
@@ -683,12 +721,185 @@ async fn search_eztv(client: &Client, query: &str, api_key: &str) -> Result<Valu
     search_eztv_by_id(client, tv_id, api_key).await
 }
 
+/// Create and bind the librqbit session and its internal HTTP API. On success
+/// the session (and its bound port) are stored in `session_slot`, making them
+/// visible to every torrent command. Returns the bound port.
+async fn init_session(
+    default_path: std::path::PathBuf,
+    persistence_dir: std::path::PathBuf,
+    session_slot: &std::sync::Arc<
+        std::sync::Mutex<Option<(std::sync::Arc<librqbit::Session>, u16)>>,
+    >,
+    username: String,
+    password: String,
+    api_credentials: String,
+) -> Result<u16, String> {
+    let opts = librqbit::SessionOptions {
+        persistence: Some(librqbit::SessionPersistenceConfig::Json {
+            folder: Some(persistence_dir),
+        }),
+        ..Default::default()
+    };
 
+    let session = librqbit::Session::new_with_opts(default_path, opts)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let api = librqbit::api::Api::new(session.clone(), None, None);
+    let http_api_opts = librqbit::http_api::HttpApiOptions {
+        read_only: false,
+        basic_auth: Some((username, password)),
+    };
+    let http_api = librqbit::http_api::HttpApi::new(api, Some(http_api_opts));
+
+    // Try to bind to a port starting from 3030, with fallback up to 3049
+    let mut port = 3030u16;
+    loop {
+        match tokio::net::TcpListener::bind(format!("127.0.0.1:{}", port)).await {
+            Ok(listener) => {
+                tokio::spawn(async move {
+                    if let Err(e) = http_api.make_http_api_and_run(listener, None).await {
+                        log::error!("HTTP API error: {}", e);
+                    }
+                });
+                break;
+            }
+            Err(_) if port < 3049 => {
+                log::warn!("Port {} is in use, trying next...", port);
+                port += 1;
+            }
+            Err(e) => {
+                return Err(format!("all ports 3030–3049 are in use: {}", e));
+            }
+        }
+    }
+
+    // Clean up restored torrents whose output directory no longer exists
+    let cleanup_session = session.clone();
+    let cleanup_client = Client::new();
+    let cleanup_port = port;
+    let cleanup_credentials = api_credentials;
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+
+        if let Ok(resp) = cleanup_client
+            .get(format!("http://127.0.0.1:{}/torrents", cleanup_port))
+            .header("Authorization", &cleanup_credentials)
+            .send()
+            .await
+        {
+            if let Ok(json) = resp.json::<serde_json::Value>().await {
+                if let Some(torrents) = json.get("torrents").and_then(|t| t.as_array()) {
+                    for t in torrents {
+                        let id = t.get("id").and_then(|v| v.as_u64());
+                        let output = t.get("output_folder").and_then(|v| v.as_str());
+                        if let (Some(id), Some(output)) = (id, output) {
+                            if !std::path::Path::new(output).exists() {
+                                log::info!(
+                                    "Removing torrent {}: output folder {} not found",
+                                    id,
+                                    output
+                                );
+                                let _ = cleanup_session
+                                    .delete(
+                                        librqbit::api::TorrentIdOrHash::Id(id as usize),
+                                        false,
+                                    )
+                                    .await;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    *session_slot
+        .lock()
+        .map_err(|e| e.to_string())? = Some((session, port));
+
+    Ok(port)
+}
+
+pub mod completed;
 pub mod crash_reporter;
 pub mod torrent;
 pub mod vlc;
 
 // ─── App Entry Point ─────────────────────────────────────────────────────────
+
+/// Raise the soft file-descriptor limit to the maximum allowed by the OS.
+/// librqbit keeps a handle open for every file of every managed torrent, so the
+/// default macOS soft limit (256) can be exhausted and start failing unrelated
+/// system calls (store reads, sockets, accept()).
+#[cfg(unix)]
+fn raise_fd_limit() {
+    unsafe {
+        let mut rl = libc::rlimit {
+            rlim_cur: 0,
+            rlim_max: 0,
+        };
+        if libc::getrlimit(libc::RLIMIT_NOFILE, &mut rl) == 0 {
+            // Cap at 1M; macOS hard limit (~10240) will clamp this automatically.
+            let max = rl.rlim_max.min(1_048_576).max(rl.rlim_cur);
+            if max > rl.rlim_cur {
+                rl.rlim_cur = max;
+                let _ = libc::setrlimit(libc::RLIMIT_NOFILE, &rl);
+            }
+        }
+    }
+}
+
+#[cfg(not(unix))]
+fn raise_fd_limit() {}
+
+/// Read a file from the app data dir. `Ok(None)` means the file does not exist;
+/// `Err` is a real I/O error that must propagate (never silently swallowed).
+#[tauri::command]
+fn read_app_data_file(app: tauri::AppHandle, name: String) -> Result<Option<String>, String> {
+    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    match std::fs::read_to_string(dir.join(&name)) {
+        Ok(s) => Ok(Some(s)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+/// Write a file in the app data dir atomically (temp file + rename), so a crash
+/// mid-write can never leave a truncated/0-byte file behind.
+#[tauri::command]
+fn write_app_data_file_atomic(
+    app: tauri::AppHandle,
+    name: String,
+    content: String,
+) -> Result<(), String> {
+    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+let path = dir.join(&name);
+        let tmp = dir.join(format!(".{}.tmp", name));
+        if let Err(e) = std::fs::write(&tmp, content.as_bytes()) {
+            let _ = std::fs::remove_file(&tmp);
+            return Err(e.to_string());
+        }
+        crate::rename_overwrite(&tmp, &path).map_err(|e| {
+            let _ = std::fs::remove_file(&tmp);
+            e.to_string()
+        })
+}
+
+/// Rename `src` onto `dst`, replacing an existing `dst`. On Windows
+/// `std::fs::rename` fails with `AlreadyExists` when the destination exists
+/// (unlike Unix); fall back to removing it first so the write stays atomic.
+pub fn rename_overwrite(src: &std::path::Path, dst: &std::path::Path) -> Result<(), String> {
+    match std::fs::rename(src, dst) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+            std::fs::remove_file(dst).map_err(|e| e.to_string())?;
+            std::fs::rename(src, dst).map_err(|e| e.to_string())
+        }
+        Err(e) => Err(e.to_string()),
+    }
+}
 
 #[tauri::command]
 fn open_in_file_manager(path: String) -> Result<(), String> {
@@ -737,7 +948,7 @@ async fn delete_library_file(app: tauri::AppHandle) -> Result<(), String> {
             .map_err(|e| format!("Failed to delete library file: {}", e))?;
     }
 
-    let bak = path.with_extension("json.bak");
+    let bak = path.with_file_name("library.backup.json");
     if bak.exists() {
         let _ = std::fs::remove_file(&bak);
     }
@@ -746,6 +957,8 @@ async fn delete_library_file(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 pub fn run() {
+    raise_fd_limit();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_dialog::init())
@@ -772,6 +985,8 @@ pub fn run() {
             search_torrents,
             open_in_file_manager,
             delete_library_file,
+            read_app_data_file,
+            write_app_data_file_atomic,
             torrent::add_torrent,
             torrent::get_torrent_metadata,
             torrent::pause_torrent,
@@ -827,6 +1042,13 @@ pub fn run() {
                 .join("torrents");
             let _ = std::fs::create_dir_all(&persistence_dir);
 
+            // Store for completed downloads kept visible after session removal
+            let completed_path = app
+                .path()
+                .app_data_dir()
+                .unwrap_or_else(|_| std::path::PathBuf::from("."))
+                .join("completed_downloads.json");
+
             tauri::async_runtime::block_on(async move {
                 use directories::UserDirs;
                 let default_path = if let Some(user_dirs) = UserDirs::new() {
@@ -850,120 +1072,77 @@ pub fn run() {
                     let _ = std::fs::remove_dir_all(&streaming_dir);
                 }
 
-                // Start librqbit session with persistence enabled
-                // Saves torrents to disk so they persist across app restarts
-                let opts = librqbit::SessionOptions {
-                    persistence: Some(librqbit::SessionPersistenceConfig::Json {
-                        folder: Some(persistence_dir),
-                    }),
-                    ..Default::default()
-                };
+                // The torrent engine state is managed up front so every torrent
+                // command is always available. The session itself is initialized
+                // (and re-initialized on transient failure) in the background by
+                // init_session.
+                let username = "buccaneer".to_string();
+                let password = uuid::Uuid::new_v4().to_string();
+                let api_userpass = format!("{}:{}", username, password);
+                let api_credentials = format!("Basic {}", base64::engine::general_purpose::STANDARD.encode(&api_userpass));
 
-                if let Ok(session) = librqbit::Session::new_with_opts(default_path.clone(), opts).await {
-                    let session_arc = session; // Session::new_with_opts already returns Arc<Session>
+                let session_slot: std::sync::Arc<
+                    std::sync::Mutex<Option<(std::sync::Arc<librqbit::Session>, u16)>>,
+                > = std::sync::Arc::new(std::sync::Mutex::new(None));
 
-                    // Generate random credentials for internal API calls
-                    let username = "buccaneer";
-                    let password = uuid::Uuid::new_v4().to_string();
-                    let api_userpass = format!("{}:{}", username, password);
-                    let api_credentials = format!("Basic {}", base64::engine::general_purpose::STANDARD.encode(&api_userpass));
+                handle.manage(torrent::TorrentState {
+                    session: session_slot.clone(),
+                    http_client: Client::new(),
+                    streamed_torrents: std::sync::Arc::new(std::sync::Mutex::new(
+                        std::collections::HashSet::new(),
+                    )),
+                    base_path: std::sync::Arc::new(std::sync::Mutex::new(
+                        default_path.to_string_lossy().to_string()
+                    )),
+                    clear_streaming_on_exit: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true)),
+                    api_credentials: api_credentials.clone(),
+                    api_userpass,
+                    torrent_times: std::sync::Arc::new(std::sync::Mutex::new(
+                        std::collections::HashMap::new(),
+                    )),
+                    completed: std::sync::Arc::new(std::sync::Mutex::new(
+                        completed::CompletedStore::new(completed_path),
+                    )),
+                });
 
-                    // Create API and HTTP API with basic auth enforced server-side
-                    let http_api_opts = librqbit::http_api::HttpApiOptions {
-                        read_only: false,
-                        basic_auth: Some((username.to_string(), password)),
-                    };
-                    let api = librqbit::api::Api::new(session_arc.clone(), None, None);
-                    let http_api = librqbit::http_api::HttpApi::new(api, Some(http_api_opts));
-
-                    // Try to bind to a port starting from 3030, with fallback up to 3049
-                    let mut port = 3030u16;
-                    let api_port = loop {
-                        match tokio::net::TcpListener::bind(format!("127.0.0.1:{}", port)).await {
-                            Ok(listener) => {
-                                tokio::spawn(async move {
-                                    if let Err(e) = http_api.make_http_api_and_run(listener, None).await {
-                                        log::error!("HTTP API error: {}", e);
-                                    }
-                                });
-                                break port;
-                            }
-                            Err(_) if port < 3049 => {
-                                log::warn!("Port {} is in use, trying next...", port);
-                                port += 1;
+                // Initialize the session with persistence; retry in the
+                // background so transient failures (port conflicts, persistence
+                // hiccups, FD exhaustion) self-heal instead of leaving every
+                // torrent command broken until a restart.
+                let retry_default = default_path.clone();
+                let retry_persistence = persistence_dir.clone();
+                let retry_username = username.clone();
+                let retry_password = password.clone();
+                let retry_credentials = api_credentials.clone();
+                tauri::async_runtime::spawn(async move {
+                    let mut attempt = 0u32;
+                    loop {
+                        attempt += 1;
+                        match init_session(
+                            retry_default.clone(),
+                            retry_persistence.clone(),
+                            &session_slot,
+                            retry_username.clone(),
+                            retry_password.clone(),
+                            retry_credentials.clone(),
+                        )
+                        .await
+                        {
+                            Ok(port) => {
+                                log::info!("librqbit session ready on port {}", port);
+                                break;
                             }
                             Err(e) => {
-                                log::error!("Failed to bind to any port from 3030 to 3049: {}", e);
-                                drop(http_api);
-                                drop(session_arc);
-                                let _ = handle.dialog()
-                                    .message("Could not start the torrent engine because ports 3030–3049 are all in use.\nPlease close other applications using these ports and restart.")
-                                    .title("Torrent Engine Error")
-                                    .show(|_| {});
-                                return;
+                                log::error!(
+                                    "librqbit session init failed (attempt {}): {} — retrying in 5s",
+                                    attempt,
+                                    e
+                                );
+                                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
                             }
                         }
-                    };
-
-                    handle.manage(torrent::TorrentState {
-                        session: session_arc.clone(),
-                        http_client: Client::new(),
-                        streamed_torrents: std::sync::Arc::new(std::sync::Mutex::new(
-                            std::collections::HashSet::new(),
-                        )),
-                        base_path: std::sync::Arc::new(std::sync::Mutex::new(
-                            default_path.to_string_lossy().to_string()
-                        )),
-                        clear_streaming_on_exit: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true)),
-                        api_credentials: api_credentials.clone(),
-                        api_port,
-                        api_userpass: api_userpass.clone(),
-                        torrent_times: std::sync::Arc::new(std::sync::Mutex::new(
-                            std::collections::HashMap::new(),
-                        )),
-                    });
-
-                    // Clean up restored torrents whose output directory no longer exists
-                    let cleanup_client = Client::new();
-                    let cleanup_credentials = api_credentials.clone();
-                    let cleanup_port = api_port;
-                    tauri::async_runtime::spawn(async move {
-                        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-
-                        if let Ok(resp) = cleanup_client
-                            .get(format!("http://127.0.0.1:{}/torrents", cleanup_port))
-                            .header("Authorization", &cleanup_credentials)
-                            .send()
-                            .await
-                        {
-                            if let Ok(json) = resp.json::<serde_json::Value>().await {
-                                if let Some(torrents) = json.get("torrents").and_then(|t| t.as_array()) {
-                                    for t in torrents {
-                                        let id = t.get("id").and_then(|v| v.as_u64());
-                                        let output = t.get("output_folder").and_then(|v| v.as_str());
-                                        if let (Some(id), Some(output)) = (id, output) {
-                                            if !std::path::Path::new(output).exists() {
-                                                log::info!(
-                                                    "Removing torrent {}: output folder {} not found",
-                                                    id,
-                                                    output
-                                                );
-                                                let _ = session_arc
-                                                    .delete(
-                                                        librqbit::api::TorrentIdOrHash::Id(id as usize),
-                                                        false,
-                                                    )
-                                                    .await;
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    });
-                } else {
-                    log::error!("Failed to initialize librqbit session");
-                }
+                    }
+                });
             });
 
             Ok(())
@@ -1003,13 +1182,15 @@ pub fn run() {
                 }
 
                 api.prevent_exit();
-                let session = state.session.clone();
+                let session = state.session().map(|(s, _)| s).ok();
                 let handle = (*app).clone();
                 tauri::async_runtime::spawn(async move {
-                    for id in stream_ids {
-                        let _ = session
-                            .delete(librqbit::api::TorrentIdOrHash::Id(id), clear_files)
-                            .await;
+                    if let Some(session) = session {
+                        for id in stream_ids {
+                            let _ = session
+                                .delete(librqbit::api::TorrentIdOrHash::Id(id), clear_files)
+                                .await;
+                        }
                     }
                     log::info!("Streaming torrent cleanup done.");
                     let _ = handle.exit(0);

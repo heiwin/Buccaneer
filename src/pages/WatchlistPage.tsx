@@ -1,24 +1,32 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { Heart, Search } from 'lucide-react';
+import { useState, useEffect, useRef, useMemo } from 'react';
+import { Eye, Search } from 'lucide-react';
 import { useLibrary } from '../lib/LibraryContext';
 import { PageHeader, Input, Select, SegmentedControl } from '../components/ui';
 import { MediaCard, EmptyState } from '../components';
 import { loadSettings, saveSettings } from '../api/settings';
-import { getTvDetails } from '../api/tmdb';
-import type { FavoriteItem } from '../api/library';
+import { getMovieDetails, getTvDetails } from '../api/tmdb';
+import { getWatchedItems, type WatchedItem } from '../api/library';
+import type { MovieDetails, TvDetails } from '../types/tmdb';
 
-export function FavoritesPage() {
-  const { favorites } = useLibrary();
+interface WatchlistItem extends WatchedItem {
+  title: string;
+  posterPath: string | null;
+  rating?: number;
+  releaseDate?: string;
+  lastAirDate?: number;
+}
+
+export function WatchlistPage() {
+  const { watched } = useLibrary();
+  const [items, setItems] = useState<WatchlistItem[]>([]);
   const [mediaType, setMediaType] = useState<'movie' | 'tv'>('movie');
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState('alphabetical');
-  const [lastUpdated, setLastUpdated] = useState<Record<string, number>>({});
-  const tvLastAirDatesRef = useRef<Record<string, number>>({});
   const sortInitialized = useRef(false);
 
   useEffect(() => {
     loadSettings().then((s) => {
-      setSortBy(s.favoritesSortBy || 'alphabetical');
+      setSortBy(s.watchlistSortBy || 'alphabetical');
       sortInitialized.current = true;
     });
   }, []);
@@ -26,60 +34,84 @@ export function FavoritesPage() {
   useEffect(() => {
     if (!sortInitialized.current) return;
     const timer = setTimeout(() => {
-      loadSettings().then((s) => saveSettings({ ...s, favoritesSortBy: sortBy })).catch(console.error);
+      loadSettings().then((s) => saveSettings({ ...s, watchlistSortBy: sortBy })).catch(console.error);
     }, 1000);
     return () => clearTimeout(timer);
   }, [sortBy]);
 
+  // Resolve watched keys into media metadata (TMDB responses are cached).
+  // TV last-air dates are cached in a ref so re-sorting stays cheap.
   useEffect(() => {
-    if (sortBy !== 'last-updated') return;
     let cancelled = false;
-
-    const tvIds = favorites.filter((f) => f.mediaType === 'tv').map((f) => f.id);
-    if (tvIds.length === 0) return;
-
-    // Only fetch shows not already cached, so re-selecting the sort is cheap.
-    const missing = tvIds.filter((id) => !(id in tvLastAirDatesRef.current));
-    if (missing.length === 0) return;
+    const watchedItems = getWatchedItems(watched);
 
     (async () => {
-      const results = await Promise.allSettled(missing.map((id) => getTvDetails(id)));
+      const results = await Promise.allSettled(
+        watchedItems.map((w) =>
+          w.mediaType === 'movie' ? getMovieDetails(w.id) : getTvDetails(w.id)
+        )
+      );
       if (cancelled) return;
+
+      if (watchedItems.length === 0) {
+        setItems([]);
+        return;
+      }
+
+      let lastAirDate: number | undefined;
+      const resolved: WatchlistItem[] = [];
       results.forEach((r, i) => {
-        if (r.status === 'fulfilled' && r.value.last_air_date) {
-          const t = new Date(r.value.last_air_date).getTime();
-          if (!Number.isNaN(t)) tvLastAirDatesRef.current[`tv-${missing[i]}`] = t;
+        if (r.status !== 'fulfilled') return;
+        const d = r.value as MovieDetails | TvDetails;
+        const base = watchedItems[i];
+        const title = 'title' in d ? d.title : d.name;
+        if (base.mediaType === 'tv') {
+          const t = (d as TvDetails).last_air_date ? new Date((d as TvDetails).last_air_date).getTime() : NaN;
+          lastAirDate = Number.isFinite(t) ? t : undefined;
         }
+        resolved.push({
+          ...base,
+          title: title || 'Unknown',
+          posterPath: d.poster_path,
+          rating: d.vote_average,
+          releaseDate: 'release_date' in d
+            ? d.release_date
+            : d.first_air_date || undefined,
+          lastAirDate,
+        });
       });
-      setLastUpdated({ ...tvLastAirDatesRef.current });
+      setItems(resolved);
     })();
 
     return () => { cancelled = true; };
-  }, [sortBy, favorites]);
+  }, [watched]);
 
   const sortOptions = [
     { value: 'alphabetical', label: 'Alphabetically' },
-    { value: 'time-added', label: 'Time Added' },
+    { value: 'recent', label: 'Recently Watched' },
     { value: 'rating', label: 'Rating' },
     { value: 'last-updated', label: 'Last Updated' },
   ];
 
-  const sortFavorites = useCallback((list: FavoriteItem[]) => {
-    const sorted = [...list];
+  const q = searchQuery.toLowerCase().trim();
+  const filtered = q ? items.filter((w) => w.title.toLowerCase().includes(q)) : items;
+
+  const sortedItems = useMemo(() => {
+    const sorted = [...filtered];
     switch (sortBy) {
-      case 'time-added':
-        sorted.sort((a, b) => b.addedAt - a.addedAt);
+      case 'recent':
+        sorted.sort((a, b) => b.watchedAt - a.watchedAt);
         break;
       case 'rating':
         sorted.sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));
         break;
       case 'last-updated': {
-        const updatedAt = (f: FavoriteItem): number => {
-          if (f.mediaType === 'movie') {
-            const t = f.releaseDate ? new Date(f.releaseDate).getTime() : NaN;
+        const updatedAt = (item: WatchlistItem): number => {
+          if (item.mediaType === 'movie') {
+            const t = item.releaseDate ? new Date(item.releaseDate).getTime() : NaN;
             return Number.isFinite(t) ? t : 0;
           }
-          return lastUpdated[`tv-${f.id}`] ?? 0;
+          return item.lastAirDate ?? 0;
         };
         sorted.sort((a, b) => updatedAt(b) - updatedAt(a));
         break;
@@ -88,29 +120,25 @@ export function FavoritesPage() {
         sorted.sort((a, b) => a.title.localeCompare(b.title));
     }
     return sorted;
-  }, [sortBy, lastUpdated]);
+  }, [filtered, sortBy]);
 
-  const q = searchQuery.toLowerCase().trim();
-  const filtered = q
-    ? favorites.filter((f) => f.title.toLowerCase().includes(q))
-    : favorites;
-
-  const movieFavorites = sortFavorites(filtered.filter((f) => f.mediaType === 'movie'));
-  const tvFavorites = sortFavorites(filtered.filter((f) => f.mediaType === 'tv'));
-  const activeFavorites = mediaType === 'movie' ? movieFavorites : tvFavorites;
+  const activeItems =
+    mediaType === 'movie'
+      ? sortedItems.filter((w) => w.mediaType === 'movie')
+      : sortedItems.filter((w) => w.mediaType === 'tv');
 
   return (
     <div className="p-8">
       {/* Header */}
       <header className="mb-8">
-        <PageHeader icon={Heart} title="Favorites" className="mb-4 justify-between">
+        <PageHeader icon={Eye} title="Watchlist" className="mb-4 justify-between">
           <div className="flex items-end gap-2">
             <form onSubmit={(e) => e.preventDefault()} className="w-64 hidden md:block">
               <Input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search favorites..."
+                placeholder="Search watchlist..."
                 icon={<Search size={15} />}
                 className="rounded-full"
               />
@@ -137,30 +165,30 @@ export function FavoritesPage() {
           value={sortBy}
           onChange={(e) => setSortBy(e.target.value as string)}
           size="sm"
-          className="w-44"
+          className="w-52"
         />
       </div>
 
-      {favorites.length === 0 ? (
+      {items.length === 0 ? (
         <EmptyState
-          icon={Heart}
-          message="No favorites yet"
-          subMessage="Click the heart icon on any movie or TV series card to add it here"
+          icon={Eye}
+          message="No watched titles yet"
+          subMessage="Click the eye icon on any movie or TV series card to add it here"
         />
       ) : filtered.length === 0 ? (
         <EmptyState
           icon={Search}
-          message={`No favorites match "${searchQuery}"`}
+          message={`No watched titles match "${searchQuery}"`}
         />
-      ) : activeFavorites.length === 0 ? (
+      ) : activeItems.length === 0 ? (
         <EmptyState
-          icon={Heart}
-          message={mediaType === 'movie' ? 'No movie favorites yet' : 'No TV series favorites yet'}
+          icon={Eye}
+          message={mediaType === 'movie' ? 'No watched movies yet' : 'No watched TV series yet'}
           subMessage={`Switch to the ${mediaType === 'movie' ? 'TV Series' : 'Movies'} tab or search in the other category`}
         />
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-5 pb-20">
-          {activeFavorites.map((item) => (
+          {activeItems.map((item) => (
             <MediaCard
               key={`${item.mediaType}-${item.id}`}
               id={item.id}

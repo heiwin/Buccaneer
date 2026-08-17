@@ -10,10 +10,12 @@ export interface TorrentInfo {
   uploadSpeed: number;
   seeds: number;
   peers: number;
-  state: 'downloading' | 'seeding' | 'paused' | 'error' | 'checking';
+  state: 'downloading' | 'seeding' | 'paused' | 'error' | 'checking' | 'completed';
   error?: string;
   savePath: string;
   isStream: boolean;
+  isCompletedHistory?: boolean;
+  files?: string[];
   addedAt: number;
   completedAt: number | null;
 }
@@ -42,6 +44,8 @@ export interface ActiveTorrentItem {
   info_hash?: string;
   output_folder?: string;
   is_stream?: boolean;
+  is_completed_history?: boolean;
+  files?: string[];
   added_at?: number;
   completed_at?: number;
   stats?: {
@@ -78,7 +82,7 @@ export async function getActiveTorrents(): Promise<TorrentInfo[]> {
     const total = stats.total_bytes && stats.total_bytes > 0 ? stats.total_bytes : 0;
     const progress = total > 0 ? Math.min(1, Math.max(0, (stats.progress_bytes || 0) / total)) : 0;
     
-    const VALID_STATES = new Set(['downloading', 'seeding', 'paused', 'error', 'checking']);
+    const VALID_STATES = new Set(['downloading', 'seeding', 'paused', 'error', 'checking', 'completed']);
     let stateStr = (stats.state || 'error').toLowerCase();
     if (stateStr === 'live') {
       stateStr = stats.finished ? 'seeding' : 'downloading';
@@ -102,6 +106,8 @@ export async function getActiveTorrents(): Promise<TorrentInfo[]> {
       error: stats.error,
       savePath: t.output_folder || 'Unknown',
       isStream: t.is_stream || false,
+      isCompletedHistory: t.is_completed_history || false,
+      files: t.files || [],
       addedAt: t.added_at ?? Date.now(),
       completedAt: t.completed_at ?? null,
     };

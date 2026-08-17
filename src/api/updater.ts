@@ -13,9 +13,25 @@ export type UpdateState =
 export type { Update } from '@tauri-apps/plugin-updater';
 
 export async function checkForUpdate(timeoutMs = 10000): Promise<Update | null> {
-  const result = await Promise.race([
-    check(),
-    new Promise<null>(resolve => setTimeout(() => resolve(null), timeoutMs)),
-  ]);
+  const checkPromise = check();
+  const result = await new Promise<Update | null | 'timeout'>((resolve, reject) => {
+    const timer = setTimeout(() => resolve('timeout'), timeoutMs);
+    checkPromise.then(
+      (update) => {
+        clearTimeout(timer);
+        resolve(update);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+  if (result === 'timeout') {
+    // The check() branch can still reject after the timeout already resolved;
+    // swallow it so it is not reported as an unhandled rejection.
+    checkPromise.catch(() => undefined);
+    throw new Error('Update check timed out. Check your connection and retry.');
+  }
   return result;
 }
