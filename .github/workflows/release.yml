@@ -64,14 +64,9 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: ${{ github.ref_name }}
           releaseBody: |
-            ## v0.9.12 — What's new
+            ## v0.9.13 — What's new
 
-            - **Watchlist** — A new page to track movies and TV shows you want to watch next. Browse by Movies/TV, search, and sort by name, recent additions, rating, or last updated.
-            - **More reliable torrent sources** — When a source returns no results, searches now automatically fall back to the next source (knaben → apibay → eztv) before giving up.
-            - **Resilient torrent engine startup** — Session initialization is retried automatically if it fails, and commands fail with a clear message instead of hanging.
-            - **Self-healing download history** — Corrupted history files are preserved instead of overwritten, and stale/empty file snapshots are rebuilt from disk.
-            - **Safer file scanning** — Symlink loops no longer hang the app, and folder scans run without holding locks.
-            - **Update checker fix** — No more unhandled promise rejections when the update check times out.
+            - **Fixed: download folder is no longer wiped on exit** — The app now clears only the `/Streaming` subfolder. A safety guard also prevents streamed-torrent cleanup from ever touching files outside the Streaming folder.
             - Various bug fixes and polish.
 
             ## Installers

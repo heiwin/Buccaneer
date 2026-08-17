@@ -306,7 +306,7 @@ pub async fn add_torrent(
     let output_folder = if stream {
         Some(std::path::Path::new(&base).join("Streaming").to_string_lossy().to_string())
     } else {
-        Some(base)
+        Some(base.clone())
     };
 
     let options = AddTorrentOptions {
@@ -316,24 +316,38 @@ pub async fn add_torrent(
         ..Default::default()
     };
 
-    let (session, _) = state.session()?;
+    let (session, api_port) = state.session()?;
 
     let response = session
         .add_torrent(add_torrent, Some(options))
         .await
         .map_err(|e| e.to_string())?;
 
-    let id = match response {
-        librqbit::AddTorrentResponse::Added(id, _) => id,
-        librqbit::AddTorrentResponse::AlreadyManaged(id, _) => id,
+    let (id, fresh_add) = match response {
+        librqbit::AddTorrentResponse::Added(id, _) => (id, true),
+        librqbit::AddTorrentResponse::AlreadyManaged(id, _) => (id, false),
         librqbit::AddTorrentResponse::ListOnly(_) => {
             return Err("ListOnly not supported".to_string())
         }
     };
 
     if stream {
-        if let Ok(mut streams) = state.streamed_torrents.lock() {
-            streams.insert(id);
+        // A torrent only participates in the exit-time streaming cleanup when
+        // its files actually live in the Streaming subfolder. A fresh add uses
+        // exactly `base/Streaming`, but an AlreadyManaged response can hand
+        // back a torrent that was originally added as a regular download into
+        // the base folder — tracking it here would make the exit handler
+        // delete those regular downloads.
+        let is_streaming_output = if fresh_add {
+            true
+        } else {
+            torrent_is_streaming(&state.http_client, &state.api_credentials, api_port, id, &base)
+                .await
+        };
+        if is_streaming_output {
+            if let Ok(mut streams) = state.streamed_torrents.lock() {
+                streams.insert(id);
+            }
         }
     }
 
@@ -406,6 +420,43 @@ pub async fn remove_torrent(
         .await
         .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+/// True when `output_folder` is at or below `<base>/Streaming`. Used to decide
+/// whether a torrent belongs to the streaming cleanup without trusting add-time
+/// flags alone (AlreadyManaged can hand back a regular download's id).
+fn is_under_streaming(base: &str, output_folder: &str) -> bool {
+    let base_path = std::path::Path::new(base);
+    let streaming_path = base_path.join("Streaming");
+    let output_path = std::path::Path::new(output_folder);
+    output_path.starts_with(&streaming_path)
+}
+
+/// Query the torrent's recorded output folder via the internal HTTP API and
+/// report whether it lives under the Streaming subfolder.
+async fn torrent_is_streaming(
+    client: &reqwest::Client,
+    credentials: &str,
+    api_port: u16,
+    id: usize,
+    base: &str,
+) -> bool {
+    let url = format!("http://127.0.0.1:{}/torrents/{}", api_port, id);
+    let Ok(resp) = client
+        .get(&url)
+        .header("Authorization", credentials)
+        .send()
+        .await
+    else {
+        return false;
+    };
+    let Ok(json) = resp.json::<serde_json::Value>().await else {
+        return false;
+    };
+    let Some(output) = json.get("output_folder").and_then(|o| o.as_str()) else {
+        return false;
+    };
+    is_under_streaming(base, output)
 }
 
 fn delete_entry_files(entry: &CompletedEntry) {

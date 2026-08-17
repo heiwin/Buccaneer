@@ -1185,12 +1185,23 @@ pub fn run() {
                 let session = state.session().map(|(s, _)| s).ok();
                 let handle = (*app).clone();
                 tauri::async_runtime::spawn(async move {
+                    // Release file descriptors by dropping the streamed torrents
+                    // from the session, but NEVER with per-torrent file deletion:
+                    // a re-streamed torrent can resolve to an id whose output
+                    // folder is the base downloads directory, which would wipe
+                    // regular downloads. Streamed files are removed below as a
+                    // whole, strictly confined to the Streaming subfolder.
                     if let Some(session) = session {
                         for id in stream_ids {
                             let _ = session
-                                .delete(librqbit::api::TorrentIdOrHash::Id(id), clear_files)
+                                .delete(librqbit::api::TorrentIdOrHash::Id(id), false)
                                 .await;
                         }
+                    }
+                    if clear_files {
+                        let streaming_dir = std::path::Path::new(&base_path).join("Streaming");
+                        log::info!("Deleting streaming directory: {:?}", streaming_dir);
+                        let _ = std::fs::remove_dir_all(&streaming_dir);
                     }
                     log::info!("Streaming torrent cleanup done.");
                     let _ = handle.exit(0);
