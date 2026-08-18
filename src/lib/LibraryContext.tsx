@@ -7,16 +7,20 @@ import {
   forceResetLibrary,
   type FavoriteItem,
   type WatchedMap,
+  type ToWatchMap,
 } from '../api/library';
 
 interface LibraryContextValue {
   favorites: FavoriteItem[];
   watched: WatchedMap;
+  toWatch: ToWatchMap;
   ready: boolean;
   toggleFavorite: (item: Omit<FavoriteItem, 'addedAt'>) => void;
   isFavorite: (id: number, mediaType: 'movie' | 'tv') => boolean;
   toggleWatched: (key: string) => void;
   isWatched: (key: string) => boolean;
+  toggleToWatch: (key: string) => void;
+  isToWatch: (key: string) => boolean;
   resetLibrary: () => void;
 }
 
@@ -25,16 +29,19 @@ const LibraryContext = createContext<LibraryContextValue | null>(null);
 export function LibraryProvider({ children }: { children: React.ReactNode }) {
   const [favorites, setFavorites] = useState<FavoriteItem[]>([]);
   const [watched, setWatched] = useState<WatchedMap>({});
+  const [toWatch, setToWatch] = useState<ToWatchMap>({});
   const [ready, setReady] = useState(false);
   const initialized = useRef(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const latestFavorites = useRef(favorites);
   const latestWatched = useRef(watched);
+  const latestToWatch = useRef(toWatch);
 
   useEffect(() => {
     latestFavorites.current = favorites;
     latestWatched.current = watched;
-  }, [favorites, watched]);
+    latestToWatch.current = toWatch;
+  }, [favorites, watched, toWatch]);
 
   // Load on mount (once; ref survives StrictMode double-mount). `initialized`
   // is only set to true after the data has been confirmed on disk, so the
@@ -43,10 +50,11 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
     if (initialized.current) return;
     let cancelled = false;
 
-    const applyData = (data: { favorites: FavoriteItem[]; watched: WatchedMap }) => {
+    const applyData = (data: { favorites: FavoriteItem[]; watched: WatchedMap; toWatch: ToWatchMap }) => {
       if (cancelled) return;
       setFavorites(data.favorites);
       setWatched(data.watched);
+      setToWatch(data.toWatch);
       initialized.current = true;
       setReady(true);
     };
@@ -84,16 +92,16 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
     if (!initialized.current) return;
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
-      saveLibrary({ favorites, watched }).catch(console.error);
+      saveLibrary({ favorites, watched, toWatch }).catch(console.error);
     }, 500);
-  }, [favorites, watched]);
+  }, [favorites, watched, toWatch]);
 
   // Flush pending save on unmount (only if a confirmed load took place).
   useEffect(() => {
     return () => {
       if (debounceRef.current && initialized.current) {
         clearTimeout(debounceRef.current);
-        saveLibrary({ favorites: latestFavorites.current, watched: latestWatched.current }).catch(console.error);
+        saveLibrary({ favorites: latestFavorites.current, watched: latestWatched.current, toWatch: latestToWatch.current }).catch(console.error);
       }
     };
   }, []);
@@ -134,14 +142,34 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
     [watched]
   );
 
+  const toggleToWatch = useCallback((key: string) => {
+    setToWatch((prev) => {
+      const next = { ...prev };
+      if (next[key]) {
+        delete next[key];
+      } else {
+        next[key] = Date.now();
+      }
+      return next;
+    });
+  }, []);
+
+  const isToWatch = useCallback(
+    (key: string) => {
+      return !!toWatch[key];
+    },
+    [toWatch]
+  );
+
   const resetLibrary = useCallback(() => {
     setFavorites([]);
     setWatched({});
+    setToWatch({});
     // If the library could never be read (both main and backup unreadable),
     // the debounced save stays blocked forever (initialized=false). Force a
     // write so the reset actually takes effect and unblocks the store.
     if (!libraryIsReady() && !initialized.current) {
-      forceResetLibrary({ favorites: [], watched: {} })
+      forceResetLibrary({ favorites: [], watched: {}, toWatch: {} })
         .then(() => {
           initialized.current = true;
           setReady(true);
@@ -152,7 +180,7 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <LibraryContext.Provider
-      value={{ favorites, watched, ready, toggleFavorite, isFavorite, toggleWatched, isWatched, resetLibrary }}
+      value={{ favorites, watched, toWatch, ready, toggleFavorite, isFavorite, toggleWatched, isWatched, toggleToWatch, isToWatch, resetLibrary }}
     >
       {children}
     </LibraryContext.Provider>

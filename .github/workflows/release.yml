@@ -64,9 +64,9 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: ${{ github.ref_name }}
           releaseBody: |
-            ## v0.9.13 — What's new
+            ## v0.9.14 — What's new
 
-            - **Fixed: download folder is no longer wiped on exit** — The app now clears only the `/Streaming` subfolder. A safety guard also prevents streamed-torrent cleanup from ever touching files outside the Streaming folder.
+            - **To-Watch list** — The Watchlist page now has a "Watched | To Watch" toggle. Add titles you want to watch later with the new **+** button on any card, separate from the already-watched list.
             - Various bug fixes and polish.
 
             ## Installers

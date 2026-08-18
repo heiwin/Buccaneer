@@ -1,10 +1,11 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Heart, CheckCircle } from 'lucide-react';
+import { Heart, CheckCircle, Plus } from 'lucide-react';
 import { posterUrl } from '../api/tmdb';
 import { useLibrary } from '../lib/LibraryContext';
 import { watchedKeyMedia } from '../api/library';
 import { Button } from './ui';
+import { cn } from '../lib/utils';
 
 interface MediaCardProps {
   id: number;
@@ -26,13 +27,14 @@ export const MediaCard: React.FC<MediaCardProps> = ({
   className = 'w-full',
 }) => {
   const navigate = useNavigate();
-  const { toggleFavorite, isFavorite, toggleWatched, isWatched } = useLibrary();
+  const { toggleFavorite, isFavorite, toggleWatched, isWatched, toggleToWatch, isToWatch } = useLibrary();
   const imageUrl = posterUrl(posterPath, 'w500');
   const year = releaseDate ? new Date(releaseDate).getFullYear() : '';
 
   const favorite = isFavorite(id, mediaType);
   const watchedKey = watchedKeyMedia(id, mediaType);
   const watched = isWatched(watchedKey);
+  const inToWatch = isToWatch(watchedKey);
 
   const handleToggleFavorite = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -42,6 +44,11 @@ export const MediaCard: React.FC<MediaCardProps> = ({
   const handleToggleWatched = (e: React.MouseEvent) => {
     e.stopPropagation();
     toggleWatched(watchedKey);
+  };
+
+  const handleToggleToWatch = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    toggleToWatch(watchedKey);
   };
 
   return (
@@ -93,14 +100,30 @@ export const MediaCard: React.FC<MediaCardProps> = ({
         >
           <CheckCircle size={16} />
         </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={handleToggleToWatch}
+          aria-label={inToWatch ? 'Remove from watchlist' : 'Add to watchlist'}
+          className={`p-1.5 backdrop-blur-sm transition-colors ${
+            inToWatch
+              ? 'bg-white/20 text-white'
+              : 'bg-black/50 text-white/70 hover:text-white hover:bg-white/20'
+          }`}
+        >
+          <Plus size={16} className={cn('transition-transform duration-200', inToWatch && 'rotate-45')} />
+        </Button>
       </div>
 
-      {/* Favorite badge — always visible if favorited */}
-      {favorite && (
-        <div className="absolute top-2 left-2 z-20">
+      {/* Favorite / to-watch badges — always visible */}
+      <div className="absolute top-2 left-2 z-20 flex flex-col gap-1.5">
+        {favorite && (
           <Heart size={14} fill="currentColor" className="text-white drop-shadow-lg" />
-        </div>
-      )}
+        )}
+        {inToWatch && (
+          <Plus size={14} className="text-white drop-shadow-lg" />
+        )}
+      </div>
 
       {/* Hover overlay */}
       <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100 flex flex-col justify-end p-4">

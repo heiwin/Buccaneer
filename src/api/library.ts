@@ -18,14 +18,19 @@ export interface FavoriteItem {
 // key format: "movie-{id}" or "tv-{id}-s{season}e{episode}"
 export type WatchedMap = Record<string, number>;
 
+// key format: "movie-{id}" or "tv-{id}" (whole titles only)
+export type ToWatchMap = Record<string, number>;
+
 export interface LibraryData {
   favorites: FavoriteItem[];
   watched: WatchedMap;
+  toWatch: ToWatchMap;
 }
 
 export const EMPTY_LIBRARY: LibraryData = {
   favorites: [],
   watched: {},
+  toWatch: {},
 };
 
 // ─── Loader ──────────────────────────────────────────────────────────────────
@@ -33,7 +38,7 @@ export const EMPTY_LIBRARY: LibraryData = {
 // Same fail-safe philosophy as settings.ts: the file is only ever overwritten
 // after its content has been confirmed on disk, otherwise writes are blocked.
 let ready = false;
-let current: LibraryData = { favorites: [], watched: {} };
+let current: LibraryData = { favorites: [], watched: {}, toWatch: {} };
 let loadPromise: Promise<LibraryData> | null = null;
 let backgroundRetry = false;
 const listeners = new Set<() => void>();
@@ -65,7 +70,6 @@ function isValidLibraryData(data: unknown): data is LibraryData {
   const d = data as Record<string, unknown>;
   return Array.isArray(d.favorites) && typeof d.watched === 'object' && d.watched !== null;
 }
-
 function extractLibrary(raw: string): LibraryData | null {
   try {
     const parsed: unknown = JSON.parse(raw);
@@ -260,4 +264,22 @@ export function getWatchedItems(watched: WatchedMap): WatchedItem[] {
     }
   }
   return [...items.values()];
+}
+
+// ─── To-watch list ──────────────────────────────────────────────────────────
+
+export interface ToWatchItem {
+  mediaType: 'movie' | 'tv';
+  id: number;
+  addedAt: number;
+}
+
+/// Distinct to-watch titles derived from the to-watch map, one entry per media.
+export function getToWatchItems(toWatch: ToWatchMap): ToWatchItem[] {
+  return Object.entries(toWatch)
+    .map(([key, ts]) => {
+      const parsed = parseWatchedKey(key);
+      return parsed ? { ...parsed, addedAt: ts } : null;
+    })
+    .filter((item): item is ToWatchItem => item !== null);
 }

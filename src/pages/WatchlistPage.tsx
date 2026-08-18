@@ -1,14 +1,19 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { Eye, Search } from 'lucide-react';
+import { Eye, Plus, Search } from 'lucide-react';
 import { useLibrary } from '../lib/LibraryContext';
 import { PageHeader, Input, Select, SegmentedControl } from '../components/ui';
 import { MediaCard, EmptyState } from '../components';
 import { loadSettings, saveSettings } from '../api/settings';
 import { getMovieDetails, getTvDetails } from '../api/tmdb';
-import { getWatchedItems, type WatchedItem } from '../api/library';
+import { getWatchedItems, getToWatchItems } from '../api/library';
 import type { MovieDetails, TvDetails } from '../types/tmdb';
 
-interface WatchlistItem extends WatchedItem {
+type ListType = 'watched' | 'towatch';
+
+interface WatchlistItem {
+  mediaType: 'movie' | 'tv';
+  id: number;
+  ts: number;
   title: string;
   posterPath: string | null;
   rating?: number;
@@ -17,8 +22,9 @@ interface WatchlistItem extends WatchedItem {
 }
 
 export function WatchlistPage() {
-  const { watched } = useLibrary();
+  const { watched, toWatch } = useLibrary();
   const [items, setItems] = useState<WatchlistItem[]>([]);
+  const [listType, setListType] = useState<ListType>('watched');
   const [mediaType, setMediaType] = useState<'movie' | 'tv'>('movie');
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState('alphabetical');
@@ -39,21 +45,22 @@ export function WatchlistPage() {
     return () => clearTimeout(timer);
   }, [sortBy]);
 
-  // Resolve watched keys into media metadata (TMDB responses are cached).
+  // Resolve watched/to-watch keys into media metadata (TMDB responses are cached).
   // TV last-air dates are cached in a ref so re-sorting stays cheap.
   useEffect(() => {
     let cancelled = false;
-    const watchedItems = getWatchedItems(watched);
+    const baseItems =
+      listType === 'watched' ? getWatchedItems(watched) : getToWatchItems(toWatch);
 
     (async () => {
       const results = await Promise.allSettled(
-        watchedItems.map((w) =>
+        baseItems.map((w) =>
           w.mediaType === 'movie' ? getMovieDetails(w.id) : getTvDetails(w.id)
         )
       );
       if (cancelled) return;
 
-      if (watchedItems.length === 0) {
+      if (baseItems.length === 0) {
         setItems([]);
         return;
       }
@@ -63,14 +70,16 @@ export function WatchlistPage() {
       results.forEach((r, i) => {
         if (r.status !== 'fulfilled') return;
         const d = r.value as MovieDetails | TvDetails;
-        const base = watchedItems[i];
+        const base = baseItems[i];
         const title = 'title' in d ? d.title : d.name;
         if (base.mediaType === 'tv') {
           const t = (d as TvDetails).last_air_date ? new Date((d as TvDetails).last_air_date).getTime() : NaN;
           lastAirDate = Number.isFinite(t) ? t : undefined;
         }
         resolved.push({
-          ...base,
+          mediaType: base.mediaType,
+          id: base.id,
+          ts: 'watchedAt' in base ? base.watchedAt : base.addedAt,
           title: title || 'Unknown',
           posterPath: d.poster_path,
           rating: d.vote_average,
@@ -84,14 +93,21 @@ export function WatchlistPage() {
     })();
 
     return () => { cancelled = true; };
-  }, [watched]);
+  }, [watched, toWatch, listType]);
 
-  const sortOptions = [
-    { value: 'alphabetical', label: 'Alphabetically' },
-    { value: 'recent', label: 'Recently Watched' },
-    { value: 'rating', label: 'Rating' },
-    { value: 'last-updated', label: 'Last Updated' },
-  ];
+  const sortOptions = listType === 'watched'
+    ? [
+        { value: 'alphabetical', label: 'Alphabetically' },
+        { value: 'recent', label: 'Recently Watched' },
+        { value: 'rating', label: 'Rating' },
+        { value: 'last-updated', label: 'Last Updated' },
+      ]
+    : [
+        { value: 'alphabetical', label: 'Alphabetically' },
+        { value: 'recent', label: 'Recently Added' },
+        { value: 'rating', label: 'Rating' },
+        { value: 'last-updated', label: 'Last Updated' },
+      ];
 
   const q = searchQuery.toLowerCase().trim();
   const filtered = q ? items.filter((w) => w.title.toLowerCase().includes(q)) : items;
@@ -100,7 +116,7 @@ export function WatchlistPage() {
     const sorted = [...filtered];
     switch (sortBy) {
       case 'recent':
-        sorted.sort((a, b) => b.watchedAt - a.watchedAt);
+        sorted.sort((a, b) => b.ts - a.ts);
         break;
       case 'rating':
         sorted.sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));
@@ -146,16 +162,27 @@ export function WatchlistPage() {
           </div>
         </PageHeader>
 
-        {/* Media type toggle */}
-        <SegmentedControl
-          options={[
-            { value: 'movie', label: 'Movies' },
-            { value: 'tv', label: 'TV Series' },
-          ]}
-          value={mediaType}
-          onChange={(v) => setMediaType(v as 'movie' | 'tv')}
-          className="w-fit"
-        />
+        {/* List type + media type toggles */}
+        <div className="flex flex-wrap items-center gap-3">
+          <SegmentedControl
+            options={[
+              { value: 'watched', label: 'Watched' },
+              { value: 'towatch', label: 'To Watch' },
+            ]}
+            value={listType}
+            onChange={(v) => setListType(v as ListType)}
+            className="w-fit"
+          />
+          <SegmentedControl
+            options={[
+              { value: 'movie', label: 'Movies' },
+              { value: 'tv', label: 'TV Series' },
+            ]}
+            value={mediaType}
+            onChange={(v) => setMediaType(v as 'movie' | 'tv')}
+            className="w-fit"
+          />
+        </div>
       </header>
 
       <div className="space-y-1.5 mb-10">
@@ -171,19 +198,31 @@ export function WatchlistPage() {
 
       {items.length === 0 ? (
         <EmptyState
-          icon={Eye}
-          message="No watched titles yet"
-          subMessage="Click the eye icon on any movie or TV series card to add it here"
+          icon={listType === 'watched' ? Eye : Plus}
+          message={listType === 'watched' ? 'No watched titles yet' : 'No to-watch titles yet'}
+          subMessage={
+            listType === 'watched'
+              ? 'Click the eye icon on any movie or TV series card to add it here'
+              : 'Click the + icon on any movie or TV series card to add it here'
+          }
         />
       ) : filtered.length === 0 ? (
         <EmptyState
           icon={Search}
-          message={`No watched titles match "${searchQuery}"`}
+          message={`No ${listType === 'watched' ? 'watched' : 'to-watch'} titles match "${searchQuery}"`}
         />
       ) : activeItems.length === 0 ? (
         <EmptyState
-          icon={Eye}
-          message={mediaType === 'movie' ? 'No watched movies yet' : 'No watched TV series yet'}
+          icon={listType === 'watched' ? Eye : Plus}
+          message={
+            mediaType === 'movie'
+              ? listType === 'watched'
+                ? 'No watched movies yet'
+                : 'No to-watch movies yet'
+              : listType === 'watched'
+                ? 'No watched TV series yet'
+                : 'No to-watch TV series yet'
+          }
           subMessage={`Switch to the ${mediaType === 'movie' ? 'TV Series' : 'Movies'} tab or search in the other category`}
         />
       ) : (
