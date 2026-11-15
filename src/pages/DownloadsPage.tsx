@@ -110,7 +110,7 @@ export function DownloadsPage() {
   const sortOptions = [
     { value: 'time-added', label: 'Time Added' },
     { value: 'time-finished', label: 'Time Completed' },
-    { value: 'alphabetical', label: 'Alphabetically' },
+    { value: 'alphabetical', label: 'Name' },
   ];
 
   const sortedTorrents = useMemo(() => {

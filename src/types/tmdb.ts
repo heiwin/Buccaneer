@@ -193,4 +193,7 @@ export interface TvDetails {
   content_ratings?: {
     results: ContentRatingEntry[];
   };
+  external_ids?: {
+    imdb_id: string | null;
+  };
 }

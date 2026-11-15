@@ -16,7 +16,7 @@ interface Genre {
 }
 
 export function DiscoverPage() {
-  const [mediaType, setMediaType] = useState<MediaType>('movie');
+  const [mediaType, setMediaType] = useState<MediaType>('tv');
   const [genres, setGenres] = useState<Genre[]>([]);
   const [selectedGenre, setSelectedGenre] = useState<number | null>(null);
   const [selectedYear, setSelectedYear] = useState<number | null>(null);
@@ -144,8 +144,8 @@ export function DiscoverPage() {
         {/* Media type toggle */}
         <SegmentedControl
           options={[
-            { value: 'movie', label: 'Movies' },
             { value: 'tv', label: 'TV Series' },
+            { value: 'movie', label: 'Movies' },
           ]}
           value={mediaType}
           onChange={(v) => { setMediaType(v as MediaType); setPage(1); }}

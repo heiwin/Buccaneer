@@ -10,6 +10,7 @@ import {
   ExternalLink,
   Heart,
   CheckCircle,
+  Plus,
 } from 'lucide-react';
 import { getMovieDetails, getTvDetails, getTvSeasonDetails, backdropUrl, posterUrl, profileUrl } from '../api/tmdb';
 import { formatDate } from '../lib/utils';
@@ -17,7 +18,7 @@ import { searchTorrents } from '../api/knaben';
 import { Button, Spinner, Badge } from '../components/ui';
 import { TorrentList, Carousel } from '../components';
 import { useLibrary } from '../lib/LibraryContext';
-import { watchedKeyEpisode } from '../api/library';
+import { watchedKeyEpisode, watchedKeyMedia } from '../api/library';
 import { buildSearchQuery } from '../constants/filters';
 import type { MovieDetails, TvDetails, SeasonDetails, TvSeason } from '../types/tmdb';
 import type { TorrentResult } from '../types/knaben';
@@ -32,10 +33,17 @@ function isMovie(d: Details): d is MovieDetails {
   return 'title' in d;
 }
 
+const iconActionClass = (active: boolean) =>
+  `shrink-0 rounded-full border transition-colors ${
+    active
+      ? 'bg-white/20 border-white/40 text-white'
+      : 'bg-zinc-800/60 border-zinc-700/50 text-zinc-400 hover:text-white hover:border-white/30'
+  }`;
+
 export function DetailPage({ mediaType }: DetailPageProps) {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { toggleFavorite, isFavorite, toggleWatched, isWatched } = useLibrary();
+  const { toggleFavorite, isFavorite, toggleWatched, isWatched, toggleToWatch, isToWatch } = useLibrary();
 
   const [details, setDetails] = useState<Details | null>(null);
   const [detailsLoading, setDetailsLoading] = useState(true);
@@ -223,7 +231,15 @@ export function DetailPage({ mediaType }: DetailPageProps) {
   const backdrop  = backdropUrl(details.backdrop_path, 'w1280');
   const poster    = posterUrl(details.poster_path, 'w500');
 
+  const libraryKey   = watchedKeyMedia(details.id, mediaType);
+  const watchedTitle = isWatched(libraryKey);
+  const inToWatch    = isToWatch(libraryKey);
+
   const metaItems: { icon: React.ReactNode; label: string }[] = [];
+
+  const imdbId = isMovie(details)
+    ? details.imdb_id
+    : ((details as TvDetails).external_ids?.imdb_id ?? null);
 
   if (isMovie(details)) {
     if (details.release_date)
@@ -348,9 +364,9 @@ export function DetailPage({ mediaType }: DetailPageProps) {
                   {m.icon} {m.label}
                 </span>
               ))}
-              {isMovie(details) && details.imdb_id && (
+              {imdbId && (
                 <a
-                  href={`https://www.imdb.com/title/${details.imdb_id}`}
+                  href={`https://www.imdb.com/title/${imdbId}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex items-center gap-1 text-yellow-500 hover:text-yellow-400 transition-colors text-xs"
@@ -360,7 +376,7 @@ export function DetailPage({ mediaType }: DetailPageProps) {
               )}
             </div>
 
-            {/* Actions (Trailer + Favorite) */}
+            {/* Actions (Trailer + Favorite / Watched / Watch later) */}
             <div className="flex items-center gap-4 mb-6">
               {trailer && (
                 <a
@@ -374,28 +390,48 @@ export function DetailPage({ mediaType }: DetailPageProps) {
                   </Button>
                 </a>
               )}
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => {
-                  const releaseDate = isMovie(details) ? details.release_date : (details as TvDetails).first_air_date;
-                  toggleFavorite({
-                    id: details.id,
-                    mediaType,
-                    title,
-                    posterPath: details.poster_path,
-                    rating: details.vote_average,
-                    releaseDate,
-                  });
-                }}
-                className={`shrink-0 rounded-full border transition-colors ${
-                  isFavorite(details.id, mediaType)
-                    ? 'bg-white/20 border-white/40 text-white'
-                    : 'bg-zinc-800/60 border-zinc-700/50 text-zinc-400 hover:text-white hover:border-white/30'
-                }`}
-              >
-                <Heart size={20} fill={isFavorite(details.id, mediaType) ? 'currentColor' : 'none'} />
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => {
+                    const releaseDate = isMovie(details) ? details.release_date : (details as TvDetails).first_air_date;
+                    toggleFavorite({
+                      id: details.id,
+                      mediaType,
+                      title,
+                      posterPath: details.poster_path,
+                      rating: details.vote_average,
+                      releaseDate,
+                    });
+                  }}
+                  aria-label={isFavorite(details.id, mediaType) ? 'Remove from favorites' : 'Add to favorites'}
+                  title={isFavorite(details.id, mediaType) ? 'Remove from favorites' : 'Add to favorites'}
+                  className={iconActionClass(isFavorite(details.id, mediaType))}
+                >
+                  <Heart size={20} fill={isFavorite(details.id, mediaType) ? 'currentColor' : 'none'} />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => toggleWatched(libraryKey)}
+                  aria-label={watchedTitle ? 'Mark as unwatched' : 'Mark as watched'}
+                  title={watchedTitle ? 'Mark as unwatched' : 'Mark as watched'}
+                  className={iconActionClass(watchedTitle)}
+                >
+                  <CheckCircle size={20} />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => toggleToWatch(libraryKey)}
+                  aria-label={inToWatch ? 'Remove from watchlist' : 'Add to watchlist'}
+                  title={inToWatch ? 'Remove from watchlist' : 'Add to watchlist'}
+                  className={iconActionClass(inToWatch)}
+                >
+                  <Plus size={20} className={`transition-transform ${inToWatch ? 'rotate-45' : ''}`} />
+                </Button>
+              </div>
             </div>
 
             {/* Overview in overlay */}
@@ -545,7 +581,18 @@ export function DetailPage({ mediaType }: DetailPageProps) {
                                 <span className="ml-2 text-[10px] text-white/70 font-normal uppercase tracking-wider">Watched</span>
                               )}
                             </h4>
-                            {ep.air_date && <p className="text-[10px] text-zinc-500 mb-2">{formatDate(ep.air_date)}</p>}
+                            {(ep.air_date || ep.runtime) && (
+                              <p className="text-[10px] text-zinc-500 mb-2 flex items-center gap-1.5">
+                                {ep.air_date && <span>{formatDate(ep.air_date)}</span>}
+                                {ep.air_date && ep.runtime && <span className="text-zinc-700">•</span>}
+                                {ep.runtime && (
+                                  <span className="flex items-center gap-1">
+                                    <Clock size={10} />
+                                    {ep.runtime} min
+                                  </span>
+                                )}
+                              </p>
+                            )}
                           </div>
                           <div className="flex items-center gap-2 shrink-0">
                             <Button

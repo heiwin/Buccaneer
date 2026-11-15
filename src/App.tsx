@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState, useCallback, lazy, Suspense } from 'react';
 import { Routes, Route, useNavigate } from 'react-router-dom';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { listen } from '@tauri-apps/api/event';
 import { onOpenUrl } from '@tauri-apps/plugin-deep-link';
 import { sendNotification } from '@tauri-apps/plugin-notification';
 import { loadSettings, settingsAreReady, onSettingsReady, applySettingsToBackend, ensureDefaultVlcPath } from './api/settings';
-import { getActiveTorrents } from './api/torrent';
+import { getActiveTorrents, type TorrentInfo } from './api/torrent';
 import { LibraryProvider } from './lib/LibraryContext';
 import { NotificationsProvider } from './lib/NotificationsContext';
 import { Sidebar } from './components';
@@ -68,12 +69,13 @@ function App() {
       }
     });
 
+    const isActiveDownload = (t: TorrentInfo) =>
+      t.state === 'downloading' || t.state === 'seeding' || t.state === 'checking' || t.state === 'paused';
+
     const unlisten = getCurrentWindow().onCloseRequested(async (event) => {
       try {
         const torrents = await getActiveTorrents();
-        const activeDownloads = torrents.filter(t =>
-          t.state === 'downloading' || t.state === 'seeding' || t.state === 'checking' || t.state === 'paused'
-        );
+        const activeDownloads = torrents.filter(isActiveDownload);
 
         if (activeDownloads.length > 0) {
           event.preventDefault();
@@ -85,10 +87,30 @@ function App() {
       }
     });
 
+    // Cmd+Q on macOS: the custom menu item emits this event instead of letting
+    // AppKit terminate the process, so quitting goes through the same
+    // confirmation + streaming cleanup as closing the window.
+    const unlistenQuit = listen('app-quit-requested', async () => {
+      try {
+        const torrents = await getActiveTorrents();
+        if (torrents.some(isActiveDownload)) {
+          closeRequestedRef.current = true;
+          setCloseDialogOpen(true);
+          return;
+        }
+      } catch (err: unknown) {
+        console.error('Error checking active downloads on quit:', err instanceof Error ? err.message : String(err));
+      }
+      // Nothing to confirm: destroy the window so the backend runs its exit
+      // cleanup instead of leaving a streamed torrent behind.
+      getCurrentWindow().destroy();
+    });
+
     return () => {
       cancelled = true;
       unlistenSettingsReady();
       unlisten.then(f => f());
+      unlistenQuit.then(f => f());
       unlistenDeepLink.then(f => f());
     };
   }, [navigate]);

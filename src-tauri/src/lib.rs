@@ -99,7 +99,7 @@ async fn get_movie_details(movie_id: u64, tmdb_state: tauri::State<'_, TmdbState
 async fn get_tv_details(tv_id: u64, tmdb_state: tauri::State<'_, TmdbState>, http_state: tauri::State<'_, HttpState>) -> Result<Value, String> {
     let key = tmdb_key!(tmdb_state);
     let url = format!(
-        "https://api.themoviedb.org/3/tv/{}?api_key={}&append_to_response=credits,videos,content_ratings",
+        "https://api.themoviedb.org/3/tv/{}?api_key={}&append_to_response=credits,videos,content_ratings,external_ids",
         tv_id, key
     );
     tmdb_get(&http_state, &url).await
@@ -727,6 +727,7 @@ async fn search_eztv(client: &Client, query: &str, api_key: &str) -> Result<Valu
 async fn init_session(
     default_path: std::path::PathBuf,
     persistence_dir: std::path::PathBuf,
+    streaming_base: String,
     session_slot: &std::sync::Arc<
         std::sync::Mutex<Option<(std::sync::Arc<librqbit::Session>, u16)>>,
     >,
@@ -774,14 +775,17 @@ async fn init_session(
         }
     }
 
-    // Clean up restored torrents whose output directory no longer exists
+    // Drop restored torrents that can no longer work: their output folder is
+    // gone, or it is `<base>/Streaming`, which is wiped on every startup (the
+    // restore above already recreated it, so an exists() check alone is not
+    // enough). Runs immediately — `new_with_opts` only returns once every
+    // persisted torrent has been restored, so the API already lists them all.
     let cleanup_session = session.clone();
     let cleanup_client = Client::new();
     let cleanup_port = port;
     let cleanup_credentials = api_credentials;
+    let cleanup_base = streaming_base;
     tauri::async_runtime::spawn(async move {
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-
         if let Ok(resp) = cleanup_client
             .get(format!("http://127.0.0.1:{}/torrents", cleanup_port))
             .header("Authorization", &cleanup_credentials)
@@ -794,9 +798,11 @@ async fn init_session(
                         let id = t.get("id").and_then(|v| v.as_u64());
                         let output = t.get("output_folder").and_then(|v| v.as_str());
                         if let (Some(id), Some(output)) = (id, output) {
-                            if !std::path::Path::new(output).exists() {
+                            if !std::path::Path::new(output).exists()
+                                || torrent::is_under_streaming(&cleanup_base, output)
+                            {
                                 log::info!(
-                                    "Removing torrent {}: output folder {} not found",
+                                    "Removing restored torrent {} (output folder: {})",
                                     id,
                                     output
                                 );
@@ -956,6 +962,118 @@ async fn delete_library_file(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Resolve the folder that holds downloads (and `<base>/Streaming`), matching
+/// what `set_download_path` does at runtime. The frontend pushes the persisted
+/// `downloadPath` right after launch, but the startup purge runs before that, so
+/// the value is read straight from `settings.json`. Falls back to `default` when
+/// the setting is absent, unreadable or empty.
+fn configured_download_path(
+    app_data_dir: Option<&std::path::Path>,
+    default: &std::path::Path,
+) -> String {
+    let custom = app_data_dir
+        .and_then(|dir| std::fs::read_to_string(dir.join("settings.json")).ok())
+        .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+        .and_then(|json| {
+            let path = json.get("settings")?.get("downloadPath")?.as_str()?.trim();
+            (!path.is_empty()).then(|| path.to_string())
+        });
+    custom.unwrap_or_else(|| default.to_string_lossy().to_string())
+}
+
+/// Id of the custom Quit menu item. Must match the `app-quit-requested`
+/// listener in `src/App.tsx`.
+#[cfg(target_os = "macos")]
+const QUIT_MENU_ID: &str = "app-quit";
+
+/// Build the macOS app menu, mirroring Tauri's default (`Menu::default`) but
+/// with a custom Quit item. The default one maps to AppKit's `terminate:`,
+/// which tears the process down through `RunEvent::Exit` — bypassing both the
+/// "downloads in progress" confirmation and the streaming folder cleanup. The
+/// custom item emits `app-quit-requested` instead, so Cmd+Q reuses the exact
+/// same close flow as the window button.
+///
+/// macOS-only: Tauri only installs a default menu there, so other platforms keep
+/// their previous behaviour (quit via the window close button, same flow).
+#[cfg(target_os = "macos")]
+fn install_app_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
+    use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
+    use tauri::Emitter;
+
+    let pkg_info = app.package_info();
+    let quit = MenuItem::with_id(
+        app,
+        QUIT_MENU_ID,
+        format!("Quit {}", pkg_info.name),
+        true,
+        Some("CmdOrCtrl+Q"),
+    )?;
+
+    // macOS routes Cmd+C/V/X through these items: dropping the menu would break
+    // text editing inside the webview.
+    let edit_menu = Submenu::with_items(
+        app,
+        "Edit",
+        true,
+        &[
+            &PredefinedMenuItem::undo(app, None)?,
+            &PredefinedMenuItem::redo(app, None)?,
+            &PredefinedMenuItem::separator(app)?,
+            &PredefinedMenuItem::cut(app, None)?,
+            &PredefinedMenuItem::copy(app, None)?,
+            &PredefinedMenuItem::paste(app, None)?,
+            &PredefinedMenuItem::select_all(app, None)?,
+        ],
+    )?;
+
+    // Reuse Tauri's id so `init_for_nsapp` registers this as the NSApp windows
+    // menu (window list at the bottom, standard Window behaviour).
+    let window_menu = Submenu::with_id_and_items(
+        app,
+        tauri::menu::WINDOW_SUBMENU_ID,
+        "Window",
+        true,
+        &[
+            &PredefinedMenuItem::minimize(app, None)?,
+            &PredefinedMenuItem::maximize(app, None)?,
+            &PredefinedMenuItem::close_window(app, None)?,
+        ],
+    )?;
+
+    let about_metadata = tauri::menu::AboutMetadata {
+        name: Some(pkg_info.name.clone()),
+        version: Some(pkg_info.version.to_string()),
+        ..Default::default()
+    };
+    let app_menu = Submenu::with_items(
+        app,
+        pkg_info.name.clone(),
+        true,
+        &[
+            &PredefinedMenuItem::about(app, None, Some(about_metadata))?,
+            &PredefinedMenuItem::separator(app)?,
+            &PredefinedMenuItem::services(app, None)?,
+            &PredefinedMenuItem::separator(app)?,
+            &PredefinedMenuItem::hide(app, None)?,
+            &PredefinedMenuItem::hide_others(app, None)?,
+            &PredefinedMenuItem::show_all(app, None)?,
+            &PredefinedMenuItem::separator(app)?,
+            &quit,
+        ],
+    )?;
+    let menu = Menu::with_items(app, &[&app_menu, &edit_menu, &window_menu])?;
+
+    app.set_menu(menu)?;
+    app.on_menu_event(|app, event| {
+        if event.id().as_ref() == QUIT_MENU_ID {
+            log::info!("Quit menu item selected — asking the frontend to confirm");
+            let _ = app.emit("app-quit-requested", ());
+        }
+    });
+
+    Ok(())
+}
+
 pub fn run() {
     raise_fd_limit();
 
@@ -1031,6 +1149,13 @@ pub fn run() {
                 log::warn!("Could not determine app data dir — crash reporter disabled");
             }
 
+            // Replace the default menu so Quit is routed through the frontend
+            // (confirmation + streaming cleanup) instead of AppKit's terminate:.
+            #[cfg(target_os = "macos")]
+            if let Err(e) = install_app_menu(app.handle()) {
+                log::error!("Could not install the app menu: {}", e);
+            }
+
             // Initialize librqbit session
             let handle = app.handle().clone();
 
@@ -1065,8 +1190,36 @@ pub fn run() {
                 // Ensure dir exists
                 let _ = std::fs::create_dir_all(&default_path);
 
+                // Streaming lives under the configured download folder, not
+                // necessarily under the app default: resolve it before touching
+                // anything streamed.
+                let app_data_dir = handle.path().app_data_dir().ok();
+                let base_path_str =
+                    configured_download_path(app_data_dir.as_deref(), &default_path);
+
+                // Drop streamed torrents from librqbit's persisted session BEFORE the
+                // session exists. Restoring them reopens their output folder, which
+                // recreates `<base>/Streaming` and restarts the download — a folder
+                // wipe alone cannot undo an unclean exit.
+                let purged = torrent::purge_streamed_from_persistence(&persistence_dir, &base_path_str);
+                if purged > 0 {
+                    log::info!("Purged {} streamed torrent(s) from session persistence", purged);
+                }
+
+                // Streamed files are disposable by definition, so their history
+                // entries are too: the files are gone at every startup and the
+                // leftovers only show up as phantom downloads.
+                let mut completed_store = completed::CompletedStore::new(completed_path);
+                match completed_store
+                    .retain(|e| !torrent::is_under_streaming(&base_path_str, &e.output_folder))
+                {
+                    Ok(0) => {}
+                    Ok(n) => log::info!("Dropped {} streamed entry(ies) from completed history", n),
+                    Err(e) => log::error!("Failed to prune streamed completed history: {}", e),
+                }
+
                 // Check if we should clear streaming folder on startup (handles app crashes / hard kills like Ctrl+C)
-                let streaming_dir = default_path.join("Streaming");
+                let streaming_dir = std::path::Path::new(&base_path_str).join("Streaming");
                 if streaming_dir.exists() {
                     log::info!("Found existing Streaming directory at startup. Cleaning it up...");
                     let _ = std::fs::remove_dir_all(&streaming_dir);
@@ -1092,7 +1245,7 @@ pub fn run() {
                         std::collections::HashSet::new(),
                     )),
                     base_path: std::sync::Arc::new(std::sync::Mutex::new(
-                        default_path.to_string_lossy().to_string()
+                        base_path_str.clone()
                     )),
                     clear_streaming_on_exit: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true)),
                     api_credentials: api_credentials.clone(),
@@ -1101,8 +1254,9 @@ pub fn run() {
                         std::collections::HashMap::new(),
                     )),
                     completed: std::sync::Arc::new(std::sync::Mutex::new(
-                        completed::CompletedStore::new(completed_path),
+                        completed_store,
                     )),
+                    exiting: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
                 });
 
                 // Initialize the session with persistence; retry in the
@@ -1111,6 +1265,7 @@ pub fn run() {
                 // torrent command broken until a restart.
                 let retry_default = default_path.clone();
                 let retry_persistence = persistence_dir.clone();
+                let retry_streaming_base = base_path_str.clone();
                 let retry_username = username.clone();
                 let retry_password = password.clone();
                 let retry_credentials = api_credentials.clone();
@@ -1121,6 +1276,7 @@ pub fn run() {
                         match init_session(
                             retry_default.clone(),
                             retry_persistence.clone(),
+                            retry_streaming_base.clone(),
                             &session_slot,
                             retry_username.clone(),
                             retry_password.clone(),
@@ -1149,8 +1305,8 @@ pub fn run() {
         })
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|app, event| {
-            if let tauri::RunEvent::ExitRequested { api, .. } = event {
+        .run(|app, event| match event {
+            tauri::RunEvent::ExitRequested { api, .. } => {
                 let state = app.try_state::<torrent::TorrentState>();
                 let Some(state) = state else {
                     log::info!("TorrentState not initialized, exiting directly.");
@@ -1160,6 +1316,16 @@ pub fn run() {
                 // Clean shutdown — remove the crash marker
                 crash_reporter::clear_marker();
 
+                // `handle.exit(0)` below re-emits ExitRequested: let that second
+                // pass through so the process actually terminates.
+                if state
+                    .exiting
+                    .swap(true, std::sync::atomic::Ordering::Relaxed)
+                {
+                    log::info!("Exit cleanup already in progress, allowing exit.");
+                    return;
+                }
+
                 let stream_ids = if let Ok(streams) = state.streamed_torrents.lock() {
                     streams.iter().copied().collect::<Vec<_>>()
                 } else {
@@ -1167,24 +1333,46 @@ pub fn run() {
                 };
                 let clear_files = state.clear_streaming_on_exit.load(std::sync::atomic::Ordering::Relaxed);
                 let base_path = state.base_path.lock().map(|b| b.clone()).unwrap_or_default();
+                let streaming_dir = std::path::Path::new(&base_path).join("Streaming");
 
                 log::info!("Starting exit cleanup. Stream IDs: {:?}, Clear files: {}", stream_ids, clear_files);
 
-                if stream_ids.is_empty() {
-                    if clear_files {
-                        let streaming_dir = std::path::Path::new(&base_path).join("Streaming");
-                        log::info!("Deleting streaming directory: {:?}", streaming_dir);
-                        let _ = std::fs::remove_dir_all(&streaming_dir);
-                    }
+                // Even with nothing tracked this run, a restored streamed torrent may
+                // still sit in the session (unclean exit). Leaving it there is what
+                // makes the download reappear on the next launch, so the folder
+                // itself counts as work to do. A missing folder needs no async pass:
+                // `RunEvent::Exit` still purges session persistence synchronously.
+                let needs_cleanup = !stream_ids.is_empty() || streaming_dir.exists();
+                if !needs_cleanup {
                     log::info!("Cleanup finished.");
-                    // No streams to clean up — allow exit to proceed normally
+                    // Nothing to clean up — allow exit to proceed normally
                     return;
                 }
 
                 api.prevent_exit();
-                let session = state.session().map(|(s, _)| s).ok();
+                let session_and_port = state.session().ok();
+                let http_client = state.http_client.clone();
+                let credentials = state.api_credentials.clone();
                 let handle = (*app).clone();
                 tauri::async_runtime::spawn(async move {
+                    let (session, api_port) = match session_and_port {
+                        Some((session, port)) => (Some(session), Some(port)),
+                        None => (None, None),
+                    };
+
+                    // Include streamed torrents restored from persistence: they are
+                    // not in `streamed_torrents` (in-memory only), so without this
+                    // scan they would survive and resume on the next launch.
+                    let mut ids = stream_ids;
+                    if let Some(port) = api_port {
+                        ids.extend(
+                            torrent::streaming_torrent_ids(&http_client, &credentials, port, &base_path)
+                                .await,
+                        );
+                    }
+                    ids.sort_unstable();
+                    ids.dedup();
+
                     // Release file descriptors by dropping the streamed torrents
                     // from the session, but NEVER with per-torrent file deletion:
                     // a re-streamed torrent can resolve to an id whose output
@@ -1192,14 +1380,13 @@ pub fn run() {
                     // regular downloads. Streamed files are removed below as a
                     // whole, strictly confined to the Streaming subfolder.
                     if let Some(session) = session {
-                        for id in stream_ids {
+                        for id in ids {
                             let _ = session
                                 .delete(librqbit::api::TorrentIdOrHash::Id(id), false)
                                 .await;
                         }
                     }
                     if clear_files {
-                        let streaming_dir = std::path::Path::new(&base_path).join("Streaming");
                         log::info!("Deleting streaming directory: {:?}", streaming_dir);
                         let _ = std::fs::remove_dir_all(&streaming_dir);
                     }
@@ -1207,5 +1394,43 @@ pub fn run() {
                     let _ = handle.exit(0);
                 });
             }
+            // Termination paths that never emit ExitRequested (macOS AppKit
+            // `terminate:`, logout, shutdown) still get a last-chance synchronous
+            // cleanup. Everything here is idempotent, so it is also harmless when
+            // the graceful path above already ran.
+            tauri::RunEvent::Exit => {
+                crash_reporter::clear_marker();
+
+                let Some(state) = app.try_state::<torrent::TorrentState>() else {
+                    return;
+                };
+                if !state
+                    .clear_streaming_on_exit
+                    .load(std::sync::atomic::Ordering::Relaxed)
+                {
+                    return;
+                }
+                let base_path = state.base_path.lock().map(|b| b.clone()).unwrap_or_default();
+
+                if let Ok(app_data) = app.path().app_data_dir() {
+                    let purged = torrent::purge_streamed_from_persistence(
+                        &app_data.join("torrents"),
+                        &base_path,
+                    );
+                    if purged > 0 {
+                        log::info!(
+                            "Exit cleanup: purged {} streamed torrent(s) from session persistence",
+                            purged
+                        );
+                    }
+                }
+
+                let streaming_dir = std::path::Path::new(&base_path).join("Streaming");
+                if streaming_dir.exists() {
+                    log::info!("Exit cleanup: deleting streaming directory {:?}", streaming_dir);
+                    let _ = std::fs::remove_dir_all(&streaming_dir);
+                }
+            }
+            _ => {}
         });
 }

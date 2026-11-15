@@ -102,6 +102,21 @@ impl CompletedStore {
         }
     }
 
+    /// Drop entries that the predicate rejects, persisting only when something
+    /// was removed. Returns how many entries were dropped.
+    pub fn retain(
+        &mut self,
+        keep: impl Fn(&CompletedEntry) -> bool,
+    ) -> Result<usize, String> {
+        let before = self.entries.len();
+        self.entries.retain(|e| keep(e));
+        let removed = before - self.entries.len();
+        if removed > 0 {
+            self.save()?;
+        }
+        Ok(removed)
+    }
+
     fn save(&self) -> Result<(), String> {
         let bytes = serde_json::to_vec_pretty(&self.entries).map_err(|e| e.to_string())?;
         let tmp = self.path.with_extension("tmp");

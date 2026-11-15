@@ -1,4 +1,4 @@
-name: Release
+name: "0.9.15"
 on:
   push:
     tags:
@@ -64,10 +64,15 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: ${{ github.ref_name }}
           releaseBody: |
-            ## v0.9.14 — What's new
+            ## v0.9.15 — What's new
 
-            - **To-Watch list** — The Watchlist page now has a "Watched | To Watch" toggle. Add titles you want to watch later with the new **+** button on any card, separate from the already-watched list.
-            - Various bug fixes and polish.
+            - **Quit confirmation** — Cmd+Q now asks for confirmation when downloads are still in progress, then cleans up the streaming folder exactly like closing the window.
+            - **Streaming cleanup fixed** — streamed torrents no longer reappear (and re-download) after a quit or a force-kill. The cleanup also purges librqbit's session file and now honours a custom download folder.
+            - **TV episode runtime** — each episode card shows its duration next to the air date.
+            - **IMDb link for TV series** — the detail page exposes the IMDb shortcut for shows too.
+            - **Watched / Watch later** — both actions are available directly on the detail page, next to Favorite.
+            - **Notifications** — new episodes are detected for the season actually airing even when a later season is already listed on TMDB.
+            - **UI polish** — toggles read `TV Series | Movies` and `To Watch | Watched`, and the name sort is labelled `Name` (A→Z).
 
             ## Installers
 

@@ -24,8 +24,8 @@ interface WatchlistItem {
 export function WatchlistPage() {
   const { watched, toWatch } = useLibrary();
   const [items, setItems] = useState<WatchlistItem[]>([]);
-  const [listType, setListType] = useState<ListType>('watched');
-  const [mediaType, setMediaType] = useState<'movie' | 'tv'>('movie');
+  const [listType, setListType] = useState<ListType>('towatch');
+  const [mediaType, setMediaType] = useState<'movie' | 'tv'>('tv');
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState('alphabetical');
   const sortInitialized = useRef(false);
@@ -97,13 +97,13 @@ export function WatchlistPage() {
 
   const sortOptions = listType === 'watched'
     ? [
-        { value: 'alphabetical', label: 'Alphabetically' },
+        { value: 'alphabetical', label: 'Name' },
         { value: 'recent', label: 'Recently Watched' },
         { value: 'rating', label: 'Rating' },
         { value: 'last-updated', label: 'Last Updated' },
       ]
     : [
-        { value: 'alphabetical', label: 'Alphabetically' },
+        { value: 'alphabetical', label: 'Name' },
         { value: 'recent', label: 'Recently Added' },
         { value: 'rating', label: 'Rating' },
         { value: 'last-updated', label: 'Last Updated' },
@@ -166,8 +166,8 @@ export function WatchlistPage() {
         <div className="flex flex-wrap items-center gap-3">
           <SegmentedControl
             options={[
-              { value: 'watched', label: 'Watched' },
               { value: 'towatch', label: 'To Watch' },
+              { value: 'watched', label: 'Watched' },
             ]}
             value={listType}
             onChange={(v) => setListType(v as ListType)}
@@ -175,8 +175,8 @@ export function WatchlistPage() {
           />
           <SegmentedControl
             options={[
-              { value: 'movie', label: 'Movies' },
               { value: 'tv', label: 'TV Series' },
+              { value: 'movie', label: 'Movies' },
             ]}
             value={mediaType}
             onChange={(v) => setMediaType(v as 'movie' | 'tv')}

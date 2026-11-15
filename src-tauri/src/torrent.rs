@@ -189,6 +189,10 @@ pub struct TorrentState {
     pub api_userpass: String,
     pub torrent_times: Arc<Mutex<HashMap<usize, TorrentTimes>>>,
     pub completed: Arc<Mutex<CompletedStore>>,
+    /// Set once the exit cleanup has been kicked off. `handle.exit(0)` re-emits
+    /// `ExitRequested`, so without this flag the handler would prevent its own
+    /// exit and the app would never terminate.
+    pub exiting: Arc<AtomicBool>,
 }
 
 impl TorrentState {
@@ -425,7 +429,7 @@ pub async fn remove_torrent(
 /// True when `output_folder` is at or below `<base>/Streaming`. Used to decide
 /// whether a torrent belongs to the streaming cleanup without trusting add-time
 /// flags alone (AlreadyManaged can hand back a regular download's id).
-fn is_under_streaming(base: &str, output_folder: &str) -> bool {
+pub(crate) fn is_under_streaming(base: &str, output_folder: &str) -> bool {
     let base_path = std::path::Path::new(base);
     let streaming_path = base_path.join("Streaming");
     let output_path = std::path::Path::new(output_folder);
@@ -457,6 +461,202 @@ async fn torrent_is_streaming(
         return false;
     };
     is_under_streaming(base, output)
+}
+
+/// Ids of every managed torrent whose output folder lives under `<base>/Streaming`.
+/// Unlike `streamed_torrents` (in-memory only) this also finds torrents restored
+/// from librqbit's persistence, which must not survive a folder wipe.
+pub async fn streaming_torrent_ids(
+    client: &reqwest::Client,
+    credentials: &str,
+    api_port: u16,
+    base: &str,
+) -> Vec<usize> {
+    let url = format!("http://127.0.0.1:{}/torrents", api_port);
+    let Ok(resp) = client
+        .get(&url)
+        .header("Authorization", credentials)
+        .send()
+        .await
+    else {
+        return Vec::new();
+    };
+    let Ok(json) = resp.json::<serde_json::Value>().await else {
+        return Vec::new();
+    };
+    json.get("torrents")
+        .and_then(|t| t.as_array())
+        .map(|torrents| {
+            torrents
+                .iter()
+                .filter_map(|t| {
+                    let id = t.get("id").and_then(|v| v.as_u64())? as usize;
+                    let output = t.get("output_folder").and_then(|o| o.as_str())?;
+                    is_under_streaming(base, output).then_some(id)
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Remove every streamed torrent from librqbit's `session.json` (plus its
+/// `.torrent`/`.bitv` sidecars) and return how many entries were dropped.
+///
+/// This MUST run before the session is created: librqbit restores persisted
+/// torrents inside `Session::new_with_opts`, reopening their output folders —
+/// which recreates `<base>/Streaming` and restarts the download. Wiping the
+/// folder first is therefore not enough after an unclean exit.
+///
+/// A `session.json` that fails to parse is left untouched (returns 0) so a
+/// corrupt file is never destroyed by the cleanup.
+pub fn purge_streamed_from_persistence(persistence_dir: &std::path::Path, base: &str) -> usize {
+    let db_path = persistence_dir.join("session.json");
+    let Ok(raw) = std::fs::read_to_string(&db_path) else {
+        return 0;
+    };
+    let mut db: serde_json::Value = match serde_json::from_str(&raw) {
+        Ok(db) => db,
+        Err(e) => {
+            log::warn!("Cannot parse {:?}: {} — skipping streamed purge", db_path, e);
+            return 0;
+        }
+    };
+
+    let Some(torrents) = db.get_mut("torrents").and_then(|t| t.as_object_mut()) else {
+        return 0;
+    };
+
+    let streamed_ids: Vec<String> = torrents
+        .iter()
+        .filter(|(_, t)| {
+            t.get("output_folder")
+                .and_then(|o| o.as_str())
+                .is_some_and(|output| is_under_streaming(base, output))
+        })
+        .map(|(id, _)| id.clone())
+        .collect();
+    if streamed_ids.is_empty() {
+        return 0;
+    }
+
+    let mut sidecars: Vec<String> = Vec::new();
+    for id in &streamed_ids {
+        if let Some(entry) = torrents.remove(id) {
+            if let Some(hash) = entry.get("info_hash").and_then(|h| h.as_str()) {
+                sidecars.push(hash.to_string());
+            }
+        }
+    }
+
+    let Ok(bytes) = serde_json::to_vec(&db) else {
+        return 0;
+    };
+    let tmp = db_path.with_extension("json.tmp");
+    if let Err(e) = std::fs::write(&tmp, &bytes) {
+        let _ = std::fs::remove_file(&tmp);
+        log::error!("Cannot write {:?}: {}", tmp, e);
+        return 0;
+    }
+    if let Err(e) = crate::rename_overwrite(&tmp, &db_path) {
+        let _ = std::fs::remove_file(&tmp);
+        log::error!("Cannot replace {:?}: {}", db_path, e);
+        return 0;
+    }
+
+    for hash in sidecars {
+        for ext in ["torrent", "bitv"] {
+            let _ = std::fs::remove_file(persistence_dir.join(format!("{}.{}", hash, ext)));
+        }
+    }
+
+    streamed_ids.len()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_dir(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "buccaneer-test-{}-{}",
+            name,
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn entry(hash: &str, output: &str) -> serde_json::Value {
+        serde_json::json!({
+            "info_hash": hash,
+            "output_folder": output,
+            "trackers": [],
+            "only_files": null,
+            "is_paused": false,
+        })
+    }
+
+    #[test]
+    fn is_under_streaming_matches_only_the_streaming_subtree() {
+        assert!(is_under_streaming("/base", "/base/Streaming"));
+        assert!(is_under_streaming("/base", "/base/Streaming/Movie/file.mkv"));
+        assert!(!is_under_streaming("/base", "/base"));
+        assert!(!is_under_streaming("/base", "/base/StreamingExtra"));
+        assert!(!is_under_streaming("/base", "/other/Streaming"));
+    }
+
+    #[test]
+    fn purge_drops_streamed_entries_and_their_sidecars() {
+        let dir = temp_dir("purge");
+        let db = serde_json::json!({
+            "torrents": {
+                "0": entry("aaa", "/base/Streaming"),
+                "1": entry("bbb", "/base"),
+            }
+        });
+        std::fs::write(dir.join("session.json"), serde_json::to_vec(&db).unwrap()).unwrap();
+        for name in ["aaa.torrent", "aaa.bitv", "bbb.torrent", "bbb.bitv"] {
+            std::fs::write(dir.join(name), b"x").unwrap();
+        }
+
+        assert_eq!(purge_streamed_from_persistence(&dir, "/base"), 1);
+
+        let after: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(dir.join("session.json")).unwrap())
+                .unwrap();
+        let torrents = after.get("torrents").and_then(|t| t.as_object()).unwrap();
+        assert_eq!(torrents.len(), 1);
+        assert_eq!(torrents["1"]["output_folder"], "/base");
+        assert!(!dir.join("aaa.torrent").exists());
+        assert!(!dir.join("aaa.bitv").exists());
+        assert!(dir.join("bbb.torrent").exists());
+        assert!(dir.join("bbb.bitv").exists());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn purge_never_destroys_an_unparsable_session_file() {
+        let dir = temp_dir("corrupt");
+        std::fs::write(dir.join("session.json"), b"{not json").unwrap();
+
+        assert_eq!(purge_streamed_from_persistence(&dir, "/base"), 0);
+        assert_eq!(
+            std::fs::read_to_string(dir.join("session.json")).unwrap(),
+            "{not json"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn purge_is_a_noop_without_a_session_file() {
+        let dir = temp_dir("missing");
+        assert_eq!(purge_streamed_from_persistence(&dir, "/base"), 0);
+        assert!(!dir.join("session.json").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
 
 fn delete_entry_files(entry: &CompletedEntry) {

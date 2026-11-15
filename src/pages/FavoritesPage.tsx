@@ -9,7 +9,7 @@ import type { FavoriteItem } from '../api/library';
 
 export function FavoritesPage() {
   const { favorites } = useLibrary();
-  const [mediaType, setMediaType] = useState<'movie' | 'tv'>('movie');
+  const [mediaType, setMediaType] = useState<'movie' | 'tv'>('tv');
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState('alphabetical');
   const [lastUpdated, setLastUpdated] = useState<Record<string, number>>({});
@@ -58,7 +58,7 @@ export function FavoritesPage() {
   }, [sortBy, favorites]);
 
   const sortOptions = [
-    { value: 'alphabetical', label: 'Alphabetically' },
+    { value: 'alphabetical', label: 'Name' },
     { value: 'time-added', label: 'Time Added' },
     { value: 'rating', label: 'Rating' },
     { value: 'last-updated', label: 'Last Updated' },
@@ -121,8 +121,8 @@ export function FavoritesPage() {
         {/* Media type toggle */}
         <SegmentedControl
           options={[
-            { value: 'movie', label: 'Movies' },
             { value: 'tv', label: 'TV Series' },
+            { value: 'movie', label: 'Movies' },
           ]}
           value={mediaType}
           onChange={(v) => setMediaType(v as 'movie' | 'tv')}

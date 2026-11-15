@@ -87,34 +87,56 @@ export async function checkNewEpisodes(
       const details = await getTvDetails(fav.id);
       const showEpisodes: NewEpisode[] = [];
 
-      // 1. Check the latest numbered season
+      // 1. Check every numbered season that could still have episodes airing.
+      // Checking only the highest season number misses the show while a future
+      // season is already listed on TMDB (e.g. S3 airing, S4 announced).
       const numberedSeasons = details.seasons?.filter(s => s.season_number > 0) ?? [];
-      if (numberedSeasons.length > 0) {
-        const latestSeason = numberedSeasons.reduce((a, b) =>
-          a.season_number > b.season_number ? a : b
-        );
+      const WEEK = 7 * 24 * 60 * 60 * 1000;
+      // Two weeks of slack: not every show airs on a strict weekly schedule.
+      const MARGIN = 14 * 24 * 60 * 60 * 1000;
 
-        const seasonStart = latestSeason.air_date ? parseAirDate(latestSeason.air_date) : 0;
-        const estimatedEnd = seasonStart + latestSeason.episode_count * 7 * 24 * 60 * 60 * 1000;
-        if (seasonStart === 0 || estimatedEnd > threshold) {
-          const seasonDetails = await getTvSeasonDetails(fav.id, latestSeason.season_number);
-          if (seasonDetails.episodes) {
-            for (const ep of seasonDetails.episodes) {
-              if (ep.air_date) {
-const epAirDate = parseAirDate(ep.air_date);
-                if (epAirDate > threshold && epAirDate <= now) {
-                  showEpisodes.push({
-                    showId: fav.id,
-                    showName: fav.title,
-                    posterPath: fav.posterPath,
-                    seasonNumber: latestSeason.season_number,
-                    episodeNumber: ep.episode_number,
-                    episodeName: ep.name,
-                    airDate: ep.air_date,
-                  });
-                }
-              }
-            }
+      // Seasons with a known date: keep the most recent ones still inside the
+      // notification window, newest first.
+      const datedSeasons = numberedSeasons
+        .map((season) => ({
+          season,
+          start: season.air_date ? parseAirDate(season.air_date) : Number.NaN,
+        }))
+        .filter(({ season, start }) => {
+          if (!Number.isFinite(start)) return false; // fallback below
+          if (start > now) return false; // not started yet
+          return start + season.episode_count * WEEK + MARGIN > threshold;
+        })
+        .sort((a, b) => b.start - a.start)
+        .slice(0, 3)
+        .map(({ season }) => season);
+
+      // A season listed without an air date can still be the one currently
+      // airing, so keep one as a fallback. Keeping all of them would let
+      // announced-but-unscheduled seasons crowd out the one actually airing.
+      const undatedSeason = numberedSeasons
+        .filter((season) => !season.air_date)
+        .sort((a, b) => b.season_number - a.season_number)[0];
+
+      const candidateSeasons = undatedSeason
+        ? [...datedSeasons, undatedSeason]
+        : datedSeasons;
+
+      for (const season of candidateSeasons) {
+        const seasonDetails = await getTvSeasonDetails(fav.id, season.season_number);
+        for (const ep of seasonDetails.episodes ?? []) {
+          if (!ep.air_date) continue;
+          const epAirDate = parseAirDate(ep.air_date);
+          if (epAirDate > threshold && epAirDate <= now) {
+            showEpisodes.push({
+              showId: fav.id,
+              showName: fav.title,
+              posterPath: fav.posterPath,
+              seasonNumber: season.season_number,
+              episodeNumber: ep.episode_number,
+              episodeName: ep.name,
+              airDate: ep.air_date,
+            });
           }
         }
       }
@@ -125,7 +147,7 @@ const epAirDate = parseAirDate(ep.air_date);
         if (seasonZero.episodes) {
           for (const ep of seasonZero.episodes) {
             if (ep.air_date) {
-              const epAirDate = new Date(ep.air_date).getTime();
+              const epAirDate = parseAirDate(ep.air_date);
               if (epAirDate > threshold && epAirDate <= now) {
                 showEpisodes.push({
                   showId: fav.id,
